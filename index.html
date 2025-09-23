@@ -9,19 +9,26 @@
   <!-- SheetJS / XLSX (CDN) -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
-    /* 스크롤바 미세 스타일 */
     .custom-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
     .custom-scroll::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 9999px; }
     .custom-scroll::-webkit-scrollbar-track { background: #18181b; }
   </style>
 </head>
 <body class="min-h-screen bg-neutral-950 text-neutral-100">
-  <main class="max-w-5xl mx-auto py-10 px-4">
+  <main class="max-w-5xl mx-auto py-10 px-4 relative">
+    <!-- 비방해(비모달) 토스트 -->
+    <div id="toast" class="pointer-events-none opacity-0 transition-opacity duration-300 fixed right-4 bottom-4 z-50">
+      <div class="flex items-center gap-2 bg-neutral-900/90 border border-neutral-700 rounded-full px-3 py-2 shadow-xl text-sm">
+        <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-emerald-500 text-black font-bold">✓</span>
+        <span id="toast-text" class="text-neutral-200">복사됨</span>
+      </div>
+    </div>
+
     <header class="mb-6">
       <h1 class="text-2xl md:text-3xl font-semibold">부품 선택 → 쉼표 데이터 생성기</h1>
       <p class="text-neutral-400 mt-1 text-sm md:text-base">
-        엑셀(.xlsx/.xls/.csv) 업로드 → 카테고리 다중 선택 → 검색(띄어쓰기 무시) → 체크/수량 →
-        <span class="font-mono">이름x수량</span> 또는 <span class="font-mono">이름</span> 으로 출력 (공백 없음)
+        엑셀(.xlsx/.xls/.csv) 업로드 → 카테고리(태그) 다중 선택 → 검색(띄어쓰기 무시) → 카드 전체 클릭/수량 →
+        <span class="font-mono">이름x수량</span> 또는 <span class="font-mono">이름</span> 출력 (공백 없음)
       </p>
     </header>
 
@@ -32,9 +39,8 @@
           파일 업로드
           <input id="file-input" type="file" accept="*/*" class="hidden" />
         </label>
-        </div>
-
-      <!-- 카테고리 버튼들 -->
+      </div>
+      <!-- 카테고리 필터 -->
       <div id="category-bar" class="flex items-center gap-2 overflow-x-auto custom-scroll"></div>
     </section>
 
@@ -45,9 +51,11 @@
           <h2 class="text-lg font-semibold">부품 리스트 <span id="count" class="text-neutral-400"></span></h2>
           <button id="clear-btn" class="rounded-xl px-3 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700">모두 지우기</button>
         </div>
-        <div class="mb-3"><input id="search" type="text" placeholder="부품 검색... (띄어쓰기 무시 검색)"
-               class="w-full rounded-2xl px-4 py-2 bg-neutral-900 border border-neutral-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
-        <div id="list" class="max-h-[420px] overflow-auto pr-1 custom-scroll"></div>
+        <div class="mb-3">
+          <input id="search" type="text" placeholder="부품 검색... (띄어쓰기 무시 검색)"
+                 class="w-full rounded-2xl px-4 py-2 bg-neutral-900 border border-neutral-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+        <div id="list" class="max-h-[460px] overflow-auto pr-1 custom-scroll"></div>
       </div>
 
       <!-- 우측: 선택 & 출력 -->
@@ -62,36 +70,53 @@
           <label class="text-sm text-neutral-400">출력 (쉼표로 구분된 텍스트, 공백 없음)</label>
           <textarea id="output" readonly class="w-full h-32 mt-1 rounded-xl px-3 py-2 bg-black/60 border border-neutral-800 font-mono text-sm focus:outline-none"></textarea>
           <div class="flex items-center gap-2 mt-2">
-            <button id="copy-btn" class="rounded-2xl px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">복사하기</button>
+            <button id="copy-btn" class="relative rounded-2xl px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
+              복사하기
+              <!-- 버튼 내부 미니 체크 -->
+              <span id="copy-done" class="absolute -right-2 -top-2 hidden select-none">
+                <span class="inline-flex w-5 h-5 items-center justify-center rounded-full bg-emerald-500 text-black text-xs font-bold shadow">✓</span>
+              </span>
+            </button>
           </div>
         </div>
       </div>
     </section>
 
     <footer class="mt-8 text-xs text-neutral-500">
-      • 입력 형식 예: <span class="font-mono">[동물] 강아지</span>, <span class="font-mono">[식물] 상추</span><br />
+      • 입력 형식 예: <span class="font-mono">Category, Name</span> (예: <span class="font-mono">TagA, 강아지</span>) — <b>1열=태그(영문), 2열=이름</b>. 예전 포맷 <span class="font-mono">[동물] 강아지</span>도 업로드 시 자동 인식합니다.<br />
       • 출력 형식: <span class="font-mono">이름x수량,이름</span> (모든 공백 제거, 수량=1은 이름만 출력)<br />
-      • 엑셀 헤더가 없다면 첫 열을 이름으로 간주합니다. 헤더가 있다면 이름 헤더로 <span class="font-mono">name, part, partname, item, 품명, 이름, 부품, 부품명</span> 중 하나를 인식합니다.
+      • 엑셀 헤더가 없으면 <b>1열=태그</b>, <b>2열=이름</b>으로 간주합니다. 열이 하나뿐이면 <span class="font-mono">[카테고리] 이름</span> 포맷을 인식합니다. 헤더가 있으면 태그 헤더: <span class="font-mono">category, cat, tag, tags, 카테고리, 분류</span>, 이름 헤더: <span class="font-mono">name, part, partname, item, 품명, 이름, 부품, 부품명</span> 중 하나를 인식합니다.
     </footer>
   </main>
 
   <script>
-    // ===== 유틸 =====
+    // ===== 상수 & 유틸 =====
     const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명"];
+    const CATEGORY_HEADERS = ["category","cat","tag","tags","카테고리","분류"];
     const $ = (sel) => document.querySelector(sel);
 
-    function normKR(s) {
-      return (s || "").normalize("NFKD").toLowerCase().replace(/\s+/g, "");
-    }
-    function parseCategoryAndName(raw) {
-      const str = String(raw ?? "").trim();
-      const m = str.match(/^\s*\[([^\]]+)\]\s*(.*)$/);
-      if (m) {
-        const category = (m[1] || "").trim() || "기타";
-        const name = (m[2] || "").trim() || category;
-        return { category, name };
+    const normKR = (s) => (s || "").normalize("NFKD").toLowerCase().replace(/\s+/g, "");
+
+    // [카테고리] 이름 포맷 파서 (정규식 없이)
+    function parseBracketed(raw) {
+      const s = String(raw == null ? "" : raw).trim();
+      if (s.startsWith("[")) {
+        const idx = s.indexOf("]");
+        if (idx > 0) {
+          const category = s.slice(1, idx).trim() || "기타";
+          const name = s.slice(idx + 1).trim() || category;
+          return { category, name };
+        }
       }
-      return { category: "기타", name: str };
+      return null;
+    }
+
+    // 모든 공백 제거(정규식 없이)
+    function stripSpaces(str) {
+      const ws = [" ", String.fromCharCode(9), String.fromCharCode(10), String.fromCharCode(13), String.fromCharCode(160)];
+      let out = String(str == null ? "" : str);
+      for (const w of ws) out = out.split(w).join("");
+      return out;
     }
 
     // ===== 상태 =====
@@ -102,39 +127,46 @@
       { id: "p4", category: "식물", name: "토마토" },
       { id: "p5", category: "식물", name: "상추" },
     ]; // 업로드 전 샘플
-
-    let selected = {}; // id -> qty
-    let activeCategories = new Set(["전체"]);
+    let selected = {};                  // id -> qty
+    let activeCategories = new Set(["전체"]); // 다중 선택
     let query = "";
 
-    // ===== 렌더링 =====
-    function buildCategories() {
-      const set = new Set(parts.map(p => p.category));
-      return ["전체", ...Array.from(set)];
+    // ===== 토스트 =====
+    let toastTimer = null;
+    function showToast(text = "완료") {
+      const toast = $("#toast");
+      $("#toast-text").textContent = text;
+      toast.classList.remove("opacity-0");
+      toast.classList.add("opacity-100");
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toast.classList.add("opacity-0");
+        toast.classList.remove("opacity-100");
+      }, 1200);
     }
 
-    function getFiltered() {
+    // ===== 렌더 =====
+    const buildCategories = () => ["전체", ...new Set(parts.map(p => p.category || "기타"))];
+    const getFiltered = () => {
       const qn = normKR(query);
       return parts.filter(p => {
         const catOk = activeCategories.has("전체") || activeCategories.size === 0 || activeCategories.has(p.category);
         const txtOk = !qn || normKR(p.name).includes(qn);
         return catOk && txtOk;
       });
-    }
+    };
 
     function renderCategoryBar() {
       const bar = $("#category-bar");
       bar.innerHTML = "";
-      const cats = buildCategories();
-      cats.forEach(cat => {
+      for (const cat of buildCategories()) {
         const isActive = activeCategories.has("전체") ? (cat === "전체") : activeCategories.has(cat);
         const btn = document.createElement("button");
         btn.textContent = cat;
         btn.className = `rounded-full px-3 py-1 border ${isActive ? "bg-indigo-600 border-indigo-500" : "bg-neutral-900 border-neutral-700 hover:bg-neutral-800"}`;
         btn.addEventListener("click", () => {
-          if (cat === "전체") {
-            activeCategories = new Set(["전체"]);
-          } else {
+          if (cat === "전체") activeCategories = new Set(["전체"]);
+          else {
             if (activeCategories.has("전체")) activeCategories.delete("전체");
             if (activeCategories.has(cat)) activeCategories.delete(cat); else activeCategories.add(cat);
             if (activeCategories.size === 0) activeCategories.add("전체");
@@ -142,10 +174,8 @@
           renderAll();
         });
         bar.appendChild(btn);
-      });
+      }
     }
-
-    
 
     function renderList() {
       const container = $("#list");
@@ -161,44 +191,58 @@
       const ul = document.createElement("ul");
       ul.className = "space-y-2";
 
-      filtered.forEach(p => {
+      for (const p of filtered) {
         const isChecked = selected[p.id] != null && selected[p.id] > 0;
         const qty = isChecked ? selected[p.id] : 1;
 
+        // 카드 전체 클릭 토글
         const li = document.createElement("li");
-        li.className = `flex items-center gap-3 bg-neutral-950 border border-neutral-800 rounded-xl p-2 ${isChecked ? "ring-1 ring-indigo-500/40" : ""}`;
-
-        const cb = document.createElement("input");
-        cb.type = "checkbox"; cb.checked = isChecked; cb.className = "h-5 w-5 accent-indigo-500";
-        cb.addEventListener("change", () => {
-          if (cb.checked) selected[p.id] = Math.max(1, Number(qty) || 1);
-          else delete selected[p.id];
+        li.className = `group flex items-center justify-between gap-3 bg-neutral-950 border border-neutral-800 rounded-xl p-3 cursor-pointer select-none ${isChecked ? "ring-1 ring-indigo-500/40" : "hover:bg-neutral-900 hover:border-neutral-700"}`;
+        li.setAttribute('role','button');
+        li.setAttribute('tabindex','0');
+        li.addEventListener('click', () => {
+          if (selected[p.id]) delete selected[p.id]; else selected[p.id] = Math.max(1, Number(qty) || 1);
           renderAll();
         });
+        li.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); li.click(); }
+        });
 
-        const infoWrap = document.createElement("div");
-        infoWrap.className = "flex-1";
-        infoWrap.innerHTML = `<div class="flex items-center gap-2">
-          <span class="text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 whitespace-nowrap">[${p.category}]</span>
-          <span class="whitespace-normal break-words">${p.name}</span>
-        </div>`;
+        // 좌측: 체크 표시 + 카테고리 + 이름
+        const left = document.createElement('div');
+        left.className = 'flex items-center gap-3 flex-1 min-w-0';
+        const mark = document.createElement('span');
+        mark.className = `flex items-center justify-center w-6 h-6 rounded-full border text-xs ${isChecked ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-neutral-700 text-neutral-500 group-hover:border-neutral-600'}`;
+        mark.textContent = isChecked ? '✓' : '';
+        const info = document.createElement('div');
+        info.className = 'flex items-center gap-2 min-w-0';
+        info.innerHTML = `<span class="text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 whitespace-nowrap">[${p.category}]</span>
+                          <span class="whitespace-normal break-words">${p.name}</span>`;
+        left.append(mark, info);
 
-        const qtyWrap = document.createElement("div");
-        qtyWrap.className = "flex items-center gap-2";
-        const qtyLbl = document.createElement("span"); qtyLbl.className = "text-sm text-neutral-400"; qtyLbl.textContent = "수량";
-        const qtyInp = document.createElement("input");
-        qtyInp.type = "number"; qtyInp.min = "1"; qtyInp.value = qty; qtyInp.className = "w-20 rounded-xl px-3 py-1 bg-neutral-900 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500";
-        qtyInp.addEventListener("input", () => {
+        // 우측: 수량 입력(클릭 전파 차단)
+        const right = document.createElement('div');
+        right.className = 'flex items-center gap-2';
+        const qtyLbl = document.createElement('span'); qtyLbl.className = 'text-sm text-neutral-400'; qtyLbl.textContent = '수량';
+        const qtyInp = document.createElement('input');
+        qtyInp.type = 'number'; qtyInp.min = '1'; qtyInp.value = qty; qtyInp.className = 'w-20 rounded-xl px-3 py-1 bg-neutral-900 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500';
+        qtyInp.addEventListener('click', (e) => e.stopPropagation());
+        qtyInp.addEventListener('keydown', (e) => e.stopPropagation());
+        qtyInp.addEventListener('input', () => {
           const val = Math.max(1, Math.floor(Number(qtyInp.value) || 1));
           qtyInp.value = String(val);
           selected[p.id] = val; // 수량 입력 시 자동 선택
-          renderAll();
+          // 카드 재렌더 없이 체크표시만 보정
+          mark.textContent = '✓';
+          li.classList.add('ring-1','ring-indigo-500/40');
+          renderOutput();
+          renderSelectedChips();
         });
 
-        qtyWrap.append(qtyLbl, qtyInp);
-        li.append(cb, infoWrap, qtyWrap);
+        right.append(qtyLbl, qtyInp);
+        li.append(left, right);
         ul.appendChild(li);
-      });
+      }
 
       container.appendChild(ul);
     }
@@ -211,7 +255,7 @@
         box.innerHTML = '<span class="text-neutral-500 text-sm">선택된 항목이 없습니다.</span>';
         return;
       }
-      items.forEach(p => {
+      for (const p of items) {
         const chip = document.createElement("div");
         chip.className = "flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-full pl-3 pr-2 py-1";
         const span = document.createElement("span");
@@ -222,7 +266,7 @@
         btn.className = "rounded-full px-2 py-1 hover:bg-neutral-800"; btn.title = "제거"; btn.textContent = "✕";
         btn.addEventListener("click", () => { delete selected[p.id]; renderAll(); });
         chip.append(span, btn); box.appendChild(chip);
-      });
+      }
     }
 
     function renderOutput() {
@@ -233,7 +277,7 @@
           const q = selected[p.id];
           return q === 1 ? `${p.name}` : `${p.name}x${q}`;
         });
-      out.value = items.join(",").replace(/\s+/g, ""); // 공백 완전 제거
+      out.value = stripSpaces(items.join(","));
       $("#copy-btn").disabled = out.value.length === 0;
     }
 
@@ -244,114 +288,91 @@
       renderOutput();
     }
 
-    // ===== 이벤트 바인딩 =====
-    $("#search").addEventListener("input", (e) => { query = e.target.value || ""; renderAll(); });
-    $("#clear-btn").addEventListener("click", () => { selected = {}; renderAll(); });
-    $("#copy-btn").addEventListener("click", async () => {
-      try { await navigator.clipboard.writeText($("#output").value); alert("복사되었습니다!"); }
-      catch (e) { alert("복사에 실패했어요. 수동으로 복사해 주세요."); }
-    });
-
+    // ===== 엑셀/CSV 업로드 파서 (1열=태그, 2열=이름; 단일 열은 [카테고리] 이름 하위호환) =====
     function processFile(file) {
-        const ext = (file.name.split(".").pop() || "").toLowerCase();
-        const reader = new FileReader();
-        reader.onload = () => {
-          try {
-            let wb;
-            if (ext === "csv") wb = XLSX.read(reader.result, { type: "string" });
-            else wb = XLSX.read(new Uint8Array(reader.result), { type: "array" });
-            const ws = wb.Sheets[wb.SheetNames[0]];
-            const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-            if (!rows || rows.length === 0) throw new Error("빈 시트");
-
-            const headerRow = rows[0].map(h => String(h || "").trim());
-            const lower = headerRow.map(h => h.toLowerCase());
-            let nameIdx = -1;
-            for (let i = 0; i < lower.length; i++) if (NAME_HEADERS.includes(lower[i])) { nameIdx = i; break; }
-            const hasHeader = nameIdx !== -1;
-            if (!hasHeader) nameIdx = 0;
-
-            const start = hasHeader ? 1 : 0;
-            const parsed = [];
-            for (let r = start; r < rows.length; r++) {
-              const row = rows[r] || [];
-              const rawName = row[nameIdx];
-              if (rawName == null) continue;
-              const { category, name } = parseCategoryAndName(rawName);
-              if (!String(name).trim()) continue;
-              parsed.push({ id: `p-${r}-${Date.now()}`, category, name: String(name).trim() });
-            }
-
-            if (parsed.length === 0) {
-              alert("가져올 데이터가 없습니다. 첫 열에 [카테고리] 이름 형식으로 부품명을 두세요.");
-              return;
-            }
-            parts = parsed; selected = {}; activeCategories = new Set(["전체"]); query = "";
-            $("#search").value = ""; renderAll();
-          } catch (err) {
-            console.error(err);
-            alert("파일을 읽는 중 문제가 발생했습니다. .xlsx/.xls/.csv 형식을 사용해주세요.");
-          }
-        };
-        if (ext === "csv") reader.readAsText(file); else reader.readAsArrayBuffer(file);
-      }
-
-      $("#file-input").addEventListener("change", (e) => {
-        const file = e.target.files && e.target.files[0]; if (!file) return;
-        processFile(file); e.target.value = ""; // 같은 파일 재업로드 허용
-      });
-            const reader = new FileReader();
-
+      const ext = (file.name.split(".").pop() || "").toLowerCase();
+      const reader = new FileReader();
       reader.onload = () => {
         try {
           let wb;
-          if (ext === "csv") {
-            wb = XLSX.read(reader.result, { type: "string" });
-          } else {
-            wb = XLSX.read(new Uint8Array(reader.result), { type: "array" });
-          }
-          const wsName = wb.SheetNames[0];
-          const ws = wb.Sheets[wsName];
+          if (ext === "csv") wb = XLSX.read(reader.result, { type: "string" });
+          else wb = XLSX.read(new Uint8Array(reader.result), { type: "array" });
+          const ws = wb.Sheets[wb.SheetNames[0]];
           const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
           if (!rows || rows.length === 0) throw new Error("빈 시트");
 
           const headerRow = rows[0].map(h => String(h || "").trim());
           const lower = headerRow.map(h => h.toLowerCase());
-          let nameIdx = -1;
-          for (let i = 0; i < lower.length; i++) if (NAME_HEADERS.includes(lower[i])) { nameIdx = i; break; }
-          const hasHeader = nameIdx !== -1;
-          if (!hasHeader) nameIdx = 0;
+
+          // 1) 헤더에서 찾기
+          let categoryIdx = -1; for (let i = 0; i < lower.length; i++) if (CATEGORY_HEADERS.includes(lower[i])) { categoryIdx = i; break; }
+          let nameIdx = -1;      for (let i = 0; i < lower.length; i++) if (NAME_HEADERS.includes(lower[i]))      { nameIdx = i; break; }
+
+          // 헤더 판단
+          const hasHeader = categoryIdx !== -1 || nameIdx !== -1;
+
+          // 2) 기본 규칙
+          if (!hasHeader) {
+            const colCount = Math.max(...rows.map(r => Array.isArray(r) ? r.length : 0));
+            if (colCount >= 2) { categoryIdx = 0; nameIdx = 1; }
+            else { categoryIdx = -1; nameIdx = 0; }
+          } else {
+            if (nameIdx === -1) { nameIdx = lower.findIndex((_, i) => i !== categoryIdx); if (nameIdx === -1) nameIdx = (categoryIdx === 0 ? 1 : 0); }
+            if (categoryIdx === -1) categoryIdx = 0;
+          }
 
           const start = hasHeader ? 1 : 0;
           const parsed = [];
           for (let r = start; r < rows.length; r++) {
             const row = rows[r] || [];
-            const rawName = row[nameIdx];
-            if (rawName == null) continue;
-            const { category, name } = parseCategoryAndName(rawName);
-            if (!String(name).trim()) continue;
-            parsed.push({ id: `p-${r}-${Date.now()}`, category, name: String(name).trim() });
+            let cat = categoryIdx !== -1 ? String(row[categoryIdx] ?? "").trim() : "";
+            let nameCell = String(row[nameIdx] ?? "").trim();
+            if (!cat && !nameCell) continue;
+
+            // 예전 포맷 보완: [카테고리] 이름
+            if (!cat) {
+              const legacy = parseBracketed(nameCell);
+              if (legacy) { cat = legacy.category; nameCell = legacy.name; }
+            }
+
+            const category = cat || "기타";
+            const name = nameCell;
+            if (!name) continue;
+            parsed.push({ id: `p-${r}-${Date.now()}`, category, name });
           }
 
           if (parsed.length === 0) {
-            alert("가져올 데이터가 없습니다. 첫 열에 [카테고리] 이름 형식으로 부품명을 두세요.");
+            alert("가져올 데이터가 없습니다. 1열=태그(영문), 2열=이름 또는 단일 열일 경우 [카테고리] 이름 형식을 사용하세요.");
             return;
           }
-          parts = parsed;
-          selected = {};
-          activeCategories = new Set(["전체"]);
-          query = "";
-          $("#search").value = "";
-          e.target.value = ""; // 같은 파일 재업로드 허용
-          renderAll();
+          parts = parsed; selected = {}; activeCategories = new Set(["전체"]); query = "";
+          $("#search").value = ""; renderAll();
         } catch (err) {
           console.error(err);
           alert("파일을 읽는 중 문제가 발생했습니다. .xlsx/.xls/.csv 형식을 사용해주세요.");
         }
       };
+      if (ext === "csv") reader.readAsText(file); else reader.readAsArrayBuffer(file);
+    }
 
-      if (ext === "csv") reader.readAsText(file);
-      else reader.readAsArrayBuffer(file);
+    // ===== 이벤트 =====
+    $("#search").addEventListener("input", (e) => { query = e.target.value || ""; renderAll(); });
+    $("#clear-btn").addEventListener("click", () => { selected = {}; renderAll(); showToast("초기화"); });
+    $("#copy-btn").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText($("#output").value);
+        showToast("복사됨");
+        const dot = $("#copy-done");
+        dot.classList.remove("hidden");
+        setTimeout(() => dot.classList.add("hidden"), 1000);
+      } catch (e) {
+        console.error(e);
+        showToast("복사 실패");
+      }
+    });
+    $("#file-input").addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0]; if (!file) return;
+      processFile(file); e.target.value = ""; // 같은 파일 재업로드 허용
     });
 
     // 초기 렌더
