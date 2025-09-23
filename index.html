@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>부품리스트 선택기</title>
+  <title>부품 선택 → 쉼표 데이터 생성기 (단일 파일)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
@@ -53,13 +53,14 @@
   </main>
 
   <script>
+    // ===== 상수 & 유틸 =====
     const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명"];
+    const CATEGORY_HEADERS = ["category","cat","tag","tags","카테고리","분류"];
     const $ = (sel) => document.querySelector(sel);
+    const normKR = (s) => (s || "").normalize("NFKD").toLowerCase().replace(/\s+/g, "");
 
-    function normKR(s) {
-      return (s || "").normalize("NFKD").toLowerCase().replace(/\s+/g, "");
-    }
-    function parseCategoryAndName(raw) {
+    // 단일열 구(舊) 포맷: [카테고리] 이름
+    function parseBracketed(raw) {
       const str = String(raw ?? "").trim();
       const m = str.match(/^\s*\[([^\]]+)\]\s*(.*)$/);
       if (m) {
@@ -67,16 +68,18 @@
         const name = (m[2] || "").trim() || category;
         return { category, name };
       }
-      return { category: "기타", name: str };
+      return null;
     }
 
-    let parts = [];
-    let selected = {};
+    // ===== 상태 =====
+    let parts = [];              // 업로드 전 표시 없음
+    let selected = {};           // id -> qty
     let activeCategories = new Set(["전체"]);
     let query = "";
 
+    // ===== 렌더링 =====
     function buildCategories() {
-      const set = new Set(parts.map(p => p.category));
+      const set = new Set(parts.map(p => p.category || "기타"));
       return ["전체", ...Array.from(set)];
     }
 
@@ -156,7 +159,7 @@
         qtyInp.addEventListener("input", () => {
           const val = Math.max(1, Math.floor(Number(qtyInp.value) || 1));
           qtyInp.value = String(val);
-          selected[p.id] = val;
+          selected[p.id] = val; // 수량 입력 시 자동 선택
           renderAll();
         });
 
@@ -209,13 +212,10 @@
       renderOutput();
     }
 
-    $("#search").addEventListener("input", (e) => { query = e.target.value || ""; renderAll(); });
-    $("#clear-btn").addEventListener("click", () => { selected = {}; renderAll(); });
-    $("#copy-btn").addEventListener("click", async () => {
-      try { await navigator.clipboard.writeText($("#output").value); alert("복사되었습니다!"); }
-      catch (e) { alert("복사에 실패했어요. 수동으로 복사해 주세요."); }
-    });
-
+    // ===== 파일 업로드 파서 =====
+    // 지원 포맷:
+    // 1) 두 열: (태그, 이름) — 헤더 없어도 됨. 헤더 있으면 CATEGORY_HEADERS/NAME_HEADERS 중 하나를 인식
+    // 2) 단일 열: [카테고리] 이름
     function processFile(file) {
       const ext = (file.name.split(".").pop() || "").toLowerCase();
       const reader = new FileReader();
@@ -230,24 +230,48 @@
 
           const headerRow = rows[0].map(h => String(h || "").trim());
           const lower = headerRow.map(h => h.toLowerCase());
-          let nameIdx = -1;
-          for (let i = 0; i < lower.length; i++) if (NAME_HEADERS.includes(lower[i])) { nameIdx = i; break; }
-          const hasHeader = nameIdx !== -1;
-          if (!hasHeader) nameIdx = 0;
+
+          // 헤더 감지
+          let categoryIdx = -1; for (let i = 0; i < lower.length; i++) if (CATEGORY_HEADERS.includes(lower[i])) { categoryIdx = i; break; }
+          let nameIdx = -1;      for (let i = 0; i < lower.length; i++) if (NAME_HEADERS.includes(lower[i]))      { nameIdx = i; break; }
+          const hasHeader = (categoryIdx !== -1 || nameIdx !== -1);
+
+          // 헤더 없으면: 1열=태그, 2열=이름 (열 1개면 단일열)
+          if (!hasHeader) {
+            const colCount = Math.max(...rows.map(r => Array.isArray(r) ? r.length : 0));
+            if (colCount >= 2) { categoryIdx = 0; nameIdx = 1; }
+            else { categoryIdx = -1; nameIdx = 0; }
+          } else {
+            // 일부만 있을 때 보정
+            if (nameIdx === -1) {
+              nameIdx = lower.findIndex((_, i) => i !== categoryIdx);
+              if (nameIdx === -1) nameIdx = (categoryIdx === 0 ? 1 : 0);
+            }
+            if (categoryIdx === -1) categoryIdx = 0;
+          }
 
           const start = hasHeader ? 1 : 0;
           const parsed = [];
           for (let r = start; r < rows.length; r++) {
             const row = rows[r] || [];
-            const rawName = row[nameIdx];
-            if (rawName == null) continue;
-            const { category, name } = parseCategoryAndName(rawName);
-            if (!String(name).trim()) continue;
-            parsed.push({ id: `p-${r}-${Date.now()}`, category, name: String(name).trim() });
+            let cat = categoryIdx !== -1 ? String(row[categoryIdx] ?? "").trim() : "";
+            let nameCell = String(row[nameIdx] ?? "").trim();
+            if (!cat && !nameCell) continue;
+
+            // 단일열/구포맷: [카테고리] 이름
+            if (!cat) {
+              const legacy = parseBracketed(nameCell);
+              if (legacy) { cat = legacy.category; nameCell = legacy.name; }
+            }
+
+            const category = cat || "기타";
+            const name = nameCell;
+            if (!name) continue;
+            parsed.push({ id: `p-${r}-${Date.now()}`, category, name });
           }
 
           if (parsed.length === 0) {
-            alert("가져올 데이터가 없습니다. 첫 열에 [카테고리] 이름 형식으로 부품명을 두세요.");
+            alert("가져올 데이터가 없습니다. 1열=태그, 2열=이름 또는 단일 열([카테고리] 이름) 형식을 사용하세요.");
             return;
           }
           parts = parsed; selected = {}; activeCategories = new Set(["전체"]); query = "";
@@ -260,11 +284,19 @@
       if (ext === "csv") reader.readAsText(file); else reader.readAsArrayBuffer(file);
     }
 
+    // ===== 이벤트 =====
+    $("#search").addEventListener("input", (e) => { query = e.target.value || ""; renderAll(); });
+    $("#clear-btn").addEventListener("click", () => { selected = {}; renderAll(); });
+    $("#copy-btn").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText($("#output").value); alert("복사되었습니다!"); }
+      catch (e) { alert("복사에 실패했어요. 수동으로 복사해 주세요."); }
+    });
     $("#file-input").addEventListener("change", (e) => {
       const file = e.target.files && e.target.files[0]; if (!file) return;
       processFile(file); e.target.value = "";
     });
 
+    // 초기 렌더
     renderAll();
   </script>
 </body>
