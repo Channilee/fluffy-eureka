@@ -4,12 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>부품 선택 → 쉼표 데이터 생성기 (단일 파일)</title>
-  <!-- Tailwind CSS (CDN) -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- SheetJS / XLSX (CDN) -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Tailwind CSS (CDN, defer로 로드 순서 보장) -->
+  <script src="https://cdn.tailwindcss.com" defer></script>
+  <!-- SheetJS / XLSX (CDN, defer) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
   <style>
-    /* 스크롤바 미세 스타일 */
     .custom-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
     .custom-scroll::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 9999px; }
     .custom-scroll::-webkit-scrollbar-track { background: #18181b; }
@@ -17,36 +16,41 @@
 </head>
 <body class="min-h-screen bg-neutral-950 text-neutral-100">
   <main class="max-w-5xl mx-auto py-10 px-4">
-    <header class="mb-6">
+    <header class="mb-4">
       <h1 class="text-2xl md:text-3xl font-semibold">부품 선택 → 쉼표 데이터 생성기</h1>
       <p class="text-neutral-400 mt-1 text-sm md:text-base">
-        엑셀(.xlsx/.xls/.csv) 업로드 → 카테고리 다중 선택 → 검색(띄어쓰기 무시) → 체크/수량 →
-        <span class="font-mono">이름x수량</span> 또는 <span class="font-mono">이름</span> 으로 출력 (공백 없음)
+        엑셀(.xlsx/.xls/.csv) 업로드 → <b>카테고리 다중 선택</b> → 검색(띄어쓰기 무시) → 체크/수량 →
+        <span class="font-mono">이름x수량</span> 또는 <span class="font-mono">이름</span> 출력 (공백 없음)
       </p>
     </header>
 
-    <!-- 상단 컨트롤 -->
+    <!-- 라이브러리 상태 표시 (문제 디버깅용) -->
+    <section id="status-bar" class="text-xs text-neutral-300 mb-3 hidden"></section>
+
+    <!-- 상단 컨트롤: 업로드 + 카테고리 -->
     <section class="grid grid-cols-1 gap-3 mb-4">
       <div class="flex items-center gap-2">
         <label class="rounded-2xl px-3 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 cursor-pointer">
           파일 업로드
+          <!-- 일부 브라우저(인앱 등) 호환 위해 전체 허용 -->
           <input id="file-input" type="file" accept="*/*" class="hidden" />
         </label>
-        </div>
-
-      <!-- 카테고리 버튼들 -->
+      </div>
       <div id="category-bar" class="flex items-center gap-2 overflow-x-auto custom-scroll"></div>
     </section>
 
     <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
       <!-- 좌측: 리스트 -->
       <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg">
-        <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center justify-between mb-2">
           <h2 class="text-lg font-semibold">부품 리스트 <span id="count" class="text-neutral-400"></span></h2>
           <button id="clear-btn" class="rounded-xl px-3 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700">모두 지우기</button>
         </div>
-        <div class="mb-3"><input id="search" type="text" placeholder="부품 검색... (띄어쓰기 무시 검색)"
-               class="w-full rounded-2xl px-4 py-2 bg-neutral-900 border border-neutral-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
+        <!-- 검색창: 리스트 바로 위(요청 반영) -->
+        <div class="mb-3">
+          <input id="search" type="text" placeholder="부품 검색... (띄어쓰기 무시 검색)"
+                 class="w-full rounded-2xl px-4 py-2 bg-neutral-900 border border-neutral-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
         <div id="list" class="max-h-[420px] overflow-auto pr-1 custom-scroll"></div>
       </div>
 
@@ -71,192 +75,207 @@
     <footer class="mt-8 text-xs text-neutral-500">
       • 입력 형식 예: <span class="font-mono">[동물] 강아지</span>, <span class="font-mono">[식물] 상추</span><br />
       • 출력 형식: <span class="font-mono">이름x수량,이름</span> (모든 공백 제거, 수량=1은 이름만 출력)<br />
-      • 엑셀 헤더가 없다면 첫 열을 이름으로 간주합니다. 헤더가 있다면 이름 헤더로 <span class="font-mono">name, part, partname, item, 품명, 이름, 부품, 부품명</span> 중 하나를 인식합니다.
+      • 엑셀 헤더가 없다면 첫 열을 이름으로 간주합니다. 헤더가 있다면 이름 헤더로
+        <span class="font-mono">name, part, partname, item, 품명, 이름, 부품, 부품명</span> 중 하나를 인식합니다.
     </footer>
   </main>
 
   <script>
-    // ===== 유틸 =====
-    const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명"];
-    const $ = (sel) => document.querySelector(sel);
+    // 전역 에러 팝업
+    window.onerror = function(msg, src, line, col, err) {
+      console.error(err || msg);
+      alert("스크립트 오류: " + msg + " (" + line + ":" + col + ")");
+    };
 
-    function normKR(s) {
-      return (s || "").normalize("NFKD").toLowerCase().replace(/\s+/g, "");
-    }
-    function parseCategoryAndName(raw) {
-      const str = String(raw ?? "").trim();
-      const m = str.match(/^\s*\[([^\]]+)\]\s*(.*)$/);
-      if (m) {
-        const category = (m[1] || "").trim() || "기타";
-        const name = (m[2] || "").trim() || category;
-        return { category, name };
+    document.addEventListener('DOMContentLoaded', () => {
+      const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명"];
+      const $ = (sel) => document.querySelector(sel);
+      const normKR = (s) => (s || "").normalize("NFKD").toLowerCase().replace(/\s+/g, "");
+      function parseCategoryAndName(raw) {
+        const str = String(raw ?? "").trim();
+        const m = str.match(/^\s*\[([^\]]+)\]\s*(.*)$/);
+        if (m) {
+          const category = (m[1] || "").trim() || "기타";
+          const name = (m[2] || "").trim() || category;
+          return { category, name };
+        }
+        return { category: "기타", name: str };
       }
-      return { category: "기타", name: str };
-    }
 
-    // ===== 상태 =====
-    let parts = [
-      { id: "p1", category: "동물", name: "강아지" },
-      { id: "p2", category: "동물", name: "고양이" },
-      { id: "p3", category: "동물", name: "다람쥐" },
-      { id: "p4", category: "식물", name: "토마토" },
-      { id: "p5", category: "식물", name: "상추" },
-    ]; // 업로드 전 샘플
-
-    let selected = {}; // id -> qty
-    let activeCategories = new Set(["전체"]);
-    let query = "";
-
-    // ===== 렌더링 =====
-    function buildCategories() {
-      const set = new Set(parts.map(p => p.category));
-      return ["전체", ...Array.from(set)];
-    }
-
-    function getFiltered() {
-      const qn = normKR(query);
-      return parts.filter(p => {
-        const catOk = activeCategories.has("전체") || activeCategories.size === 0 || activeCategories.has(p.category);
-        const txtOk = !qn || normKR(p.name).includes(qn);
-        return catOk && txtOk;
-      });
-    }
-
-    function renderCategoryBar() {
-      const bar = $("#category-bar");
-      bar.innerHTML = "";
-      const cats = buildCategories();
-      cats.forEach(cat => {
-        const isActive = activeCategories.has("전체") ? (cat === "전체") : activeCategories.has(cat);
-        const btn = document.createElement("button");
-        btn.textContent = cat;
-        btn.className = `rounded-full px-3 py-1 border ${isActive ? "bg-indigo-600 border-indigo-500" : "bg-neutral-900 border-neutral-700 hover:bg-neutral-800"}`;
-        btn.addEventListener("click", () => {
-          if (cat === "전체") {
-            activeCategories = new Set(["전체"]);
-          } else {
-            if (activeCategories.has("전체")) activeCategories.delete("전체");
-            if (activeCategories.has(cat)) activeCategories.delete(cat); else activeCategories.add(cat);
-            if (activeCategories.size === 0) activeCategories.add("전체");
+      // 라이브러리 상태 표시
+      (function initStatus() {
+        try {
+          const bar = document.getElementById('status-bar');
+          const tailwindOK = typeof window.tailwind !== 'undefined';
+          const xlsxOK = typeof window.XLSX !== 'undefined';
+          bar.classList.remove('hidden');
+          bar.innerHTML = `
+            <div class="flex flex-wrap gap-2">
+              <span class="px-2 py-1 rounded border ${tailwindOK ? 'border-green-700 text-green-400' : 'border-red-700 text-red-400'}">Tailwind: ${tailwindOK ? 'OK' : '로드 실패'}</span>
+              <span class="px-2 py-1 rounded border ${xlsxOK ? 'border-green-700 text-green-400' : 'border-red-700 text-red-400'}">XLSX: ${xlsxOK ? 'OK' : '로드 실패'}</span>
+            </div>`;
+          if (!xlsxOK) {
+            alert('XLSX 라이브러리가 로드되지 않았습니다. 네트워크(콘텐츠 차단)나 CDN 문제일 수 있어요. 다른 네트워크/시크릿 창을 시도해 주세요.');
           }
-          renderAll();
+        } catch (e) { console.warn('status init fail', e); }
+      })();
+
+      // 상태
+      let parts = [
+        { id: "p1", category: "동물", name: "강아지" },
+        { id: "p2", category: "동물", name: "고양이" },
+        { id: "p3", category: "동물", name: "다람쥐" },
+        { id: "p4", category: "식물", name: "토마토" },
+        { id: "p5", category: "식물", name: "상추" },
+      ];
+      let selected = {};                     // id -> qty
+      let activeCategories = new Set(["전체"]); // 다중 선택
+      let query = "";
+
+      // 렌더
+      const buildCategories = () => ["전체", ...new Set(parts.map(p => p.category))];
+      const getFiltered = () => {
+        const qn = normKR(query);
+        return parts.filter(p => {
+          const catOk = activeCategories.has("전체") || activeCategories.size === 0 || activeCategories.has(p.category);
+          const txtOk = !qn || normKR(p.name).includes(qn);
+          return catOk && txtOk;
         });
-        bar.appendChild(btn);
-      });
-    }
+      };
 
-    
-
-    function renderList() {
-      const container = $("#list");
-      container.innerHTML = "";
-      const filtered = getFiltered();
-      $("#count").textContent = `(${filtered.length})`;
-
-      if (filtered.length === 0) {
-        container.innerHTML = '<div class="text-neutral-500 text-sm py-8 text-center">검색 결과가 없습니다.</div>';
-        return;
+      function renderCategoryBar() {
+        const bar = $("#category-bar");
+        bar.innerHTML = "";
+        for (const cat of buildCategories()) {
+          const isActive = activeCategories.has("전체") ? (cat === "전체") : activeCategories.has(cat);
+          const btn = document.createElement("button");
+          btn.textContent = cat;
+          btn.className = `rounded-full px-3 py-1 border ${isActive ? "bg-indigo-600 border-indigo-500" : "bg-neutral-900 border-neutral-700 hover:bg-neutral-800"}`;
+          btn.addEventListener("click", () => {
+            if (cat === "전체") activeCategories = new Set(["전체"]);
+            else {
+              if (activeCategories.has("전체")) activeCategories.delete("전체");
+              if (activeCategories.has(cat)) activeCategories.delete(cat); else activeCategories.add(cat);
+              if (activeCategories.size === 0) activeCategories.add("전체");
+            }
+            renderAll();
+          });
+          bar.appendChild(btn);
+        }
       }
 
-      const ul = document.createElement("ul");
-      ul.className = "space-y-2";
+      function renderList() {
+        const container = $("#list");
+        container.innerHTML = "";
+        const filtered = getFiltered();
+        $("#count").textContent = `(${filtered.length})`;
 
-      filtered.forEach(p => {
-        const isChecked = selected[p.id] != null && selected[p.id] > 0;
-        const qty = isChecked ? selected[p.id] : 1;
+        if (filtered.length === 0) {
+          container.innerHTML = '<div class="text-neutral-500 text-sm py-8 text-center">검색 결과가 없습니다.</div>';
+          return;
+        }
 
-        const li = document.createElement("li");
-        li.className = `flex items-center gap-3 bg-neutral-950 border border-neutral-800 rounded-xl p-2 ${isChecked ? "ring-1 ring-indigo-500/40" : ""}`;
+        const ul = document.createElement("ul");
+        ul.className = "space-y-2";
 
-        const cb = document.createElement("input");
-        cb.type = "checkbox"; cb.checked = isChecked; cb.className = "h-5 w-5 accent-indigo-500";
-        cb.addEventListener("change", () => {
-          if (cb.checked) selected[p.id] = Math.max(1, Number(qty) || 1);
-          else delete selected[p.id];
-          renderAll();
-        });
+        for (const p of filtered) {
+          const isChecked = selected[p.id] != null && selected[p.id] > 0;
+          const qty = isChecked ? selected[p.id] : 1;
 
-        const infoWrap = document.createElement("div");
-        infoWrap.className = "flex-1";
-        infoWrap.innerHTML = `<div class="flex items-center gap-2">
-          <span class="text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 whitespace-nowrap">[${p.category}]</span>
-          <span class="whitespace-normal break-words">${p.name}</span>
-        </div>`;
+          const li = document.createElement("li");
+          li.className = `flex items-center gap-3 bg-neutral-950 border border-neutral-800 rounded-xl p-2 ${isChecked ? "ring-1 ring-indigo-500/40" : ""}`;
 
-        const qtyWrap = document.createElement("div");
-        qtyWrap.className = "flex items-center gap-2";
-        const qtyLbl = document.createElement("span"); qtyLbl.className = "text-sm text-neutral-400"; qtyLbl.textContent = "수량";
-        const qtyInp = document.createElement("input");
-        qtyInp.type = "number"; qtyInp.min = "1"; qtyInp.value = qty; qtyInp.className = "w-20 rounded-xl px-3 py-1 bg-neutral-900 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500";
-        qtyInp.addEventListener("input", () => {
-          const val = Math.max(1, Math.floor(Number(qtyInp.value) || 1));
-          qtyInp.value = String(val);
-          selected[p.id] = val; // 수량 입력 시 자동 선택
-          renderAll();
-        });
+          const cb = document.createElement("input");
+          cb.type = "checkbox"; cb.checked = isChecked; cb.className = "h-5 w-5 accent-indigo-500";
+          cb.addEventListener("change", () => {
+            if (cb.checked) selected[p.id] = Math.max(1, Number(qty) || 1); else delete selected[p.id];
+            renderAll();
+          });
 
-        qtyWrap.append(qtyLbl, qtyInp);
-        li.append(cb, infoWrap, qtyWrap);
-        ul.appendChild(li);
-      });
+          const infoWrap = document.createElement("div");
+          infoWrap.className = "flex-1";
+          infoWrap.innerHTML = `<div class="flex items-center gap-2">
+            <span class="text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 whitespace-nowrap">[${p.category}]</span>
+            <span class="whitespace-normal break-words">${p.name}</span>
+          </div>`;
 
-      container.appendChild(ul);
-    }
+          const qtyWrap = document.createElement("div");
+          qtyWrap.className = "flex items-center gap-2";
+          const qtyLbl = document.createElement("span"); qtyLbl.className = "text-sm text-neutral-400"; qtyLbl.textContent = "수량";
+          const qtyInp = document.createElement("input");
+          qtyInp.type = "number"; qtyInp.min = "1"; qtyInp.value = qty; qtyInp.className = "w-20 rounded-xl px-3 py-1 bg-neutral-900 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500";
+          qtyInp.addEventListener("input", () => {
+            const val = Math.max(1, Math.floor(Number(qtyInp.value) || 1));
+            qtyInp.value = String(val);
+            selected[p.id] = val; // 수량 입력 시 자동 선택
+            renderAll();
+          });
 
-    function renderSelectedChips() {
-      const box = $("#selected-chips");
-      box.innerHTML = "";
-      const items = parts.filter(p => selected[p.id]);
-      if (items.length === 0) {
-        box.innerHTML = '<span class="text-neutral-500 text-sm">선택된 항목이 없습니다.</span>';
-        return;
+          qtyWrap.append(qtyLbl, qtyInp);
+          li.append(cb, infoWrap, qtyWrap);
+          ul.appendChild(li);
+        }
+
+        container.appendChild(ul);
       }
-      items.forEach(p => {
-        const chip = document.createElement("div");
-        chip.className = "flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-full pl-3 pr-2 py-1";
-        const span = document.createElement("span");
-        span.className = "text-sm";
-        const q = selected[p.id];
-        span.textContent = q === 1 ? p.name : `${p.name}×${q}`;
-        const btn = document.createElement("button");
-        btn.className = "rounded-full px-2 py-1 hover:bg-neutral-800"; btn.title = "제거"; btn.textContent = "✕";
-        btn.addEventListener("click", () => { delete selected[p.id]; renderAll(); });
-        chip.append(span, btn); box.appendChild(chip);
-      });
-    }
 
-    function renderOutput() {
-      const out = $("#output");
-      const items = parts
-        .filter(p => selected[p.id] && selected[p.id] > 0)
-        .map(p => {
+      function renderSelectedChips() {
+        const box = $("#selected-chips");
+        box.innerHTML = "";
+        const items = parts.filter(p => selected[p.id]);
+        if (items.length === 0) {
+          box.innerHTML = '<span class="text-neutral-500 text-sm">선택된 항목이 없습니다.</span>';
+          return;
+        }
+        for (const p of items) {
+          const chip = document.createElement("div");
+          chip.className = "flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-full pl-3 pr-2 py-1";
+          const span = document.createElement("span");
+          span.className = "text-sm";
           const q = selected[p.id];
-          return q === 1 ? `${p.name}` : `${p.name}x${q}`;
-        });
-      out.value = items.join(",").replace(/\s+/g, ""); // 공백 완전 제거
-      $("#copy-btn").disabled = out.value.length === 0;
-    }
+          span.textContent = q === 1 ? p.name : `${p.name}×${q}`;
+          const btn = document.createElement("button");
+          btn.className = "rounded-full px-2 py-1 hover:bg-neutral-800"; btn.title = "제거"; btn.textContent = "✕";
+          btn.addEventListener("click", () => { delete selected[p.id]; renderAll(); });
+          chip.append(span, btn); box.appendChild(chip);
+        }
+      }
 
-    function renderAll() {
-      renderCategoryBar();
-      renderList();
-      renderSelectedChips();
-      renderOutput();
-    }
+      function renderOutput() {
+        const out = $("#output");
+        const items = parts
+          .filter(p => selected[p.id] && selected[p.id] > 0)
+          .map(p => {
+            const q = selected[p.id];
+            return q === 1 ? `${p.name}` : `${p.name}x${q}`;
+          });
+        out.value = items.join(",").replace(/\s+/g, ""); // 공백 제거
+        $("#copy-btn").disabled = out.value.length === 0;
+      }
 
-    // ===== 이벤트 바인딩 =====
-    $("#search").addEventListener("input", (e) => { query = e.target.value || ""; renderAll(); });
-    $("#clear-btn").addEventListener("click", () => { selected = {}; renderAll(); });
-    $("#copy-btn").addEventListener("click", async () => {
-      try { await navigator.clipboard.writeText($("#output").value); alert("복사되었습니다!"); }
-      catch (e) { alert("복사에 실패했어요. 수동으로 복사해 주세요."); }
-    });
+      function renderAll() {
+        renderCategoryBar();
+        renderList();
+        renderSelectedChips();
+        renderOutput();
+      }
 
-    function processFile(file) {
+      // 이벤트
+      $("#search").addEventListener("input", (e) => { query = e.target.value || ""; renderAll(); });
+      $("#clear-btn").addEventListener("click", () => { selected = {}; renderAll(); });
+      $("#copy-btn").addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText($("#output").value); alert("복사되었습니다!"); }
+        catch { alert("복사에 실패했어요. 수동으로 복사해 주세요."); }
+      });
+      $("#file-input").addEventListener("change", (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
         const ext = (file.name.split(".").pop() || "").toLowerCase();
         const reader = new FileReader();
+
         reader.onload = () => {
           try {
+            if (typeof XLSX === 'undefined') throw new Error('XLSX 미로드');
             let wb;
             if (ext === "csv") wb = XLSX.read(reader.result, { type: "string" });
             else wb = XLSX.read(new Uint8Array(reader.result), { type: "array" });
@@ -287,75 +306,19 @@
               return;
             }
             parts = parsed; selected = {}; activeCategories = new Set(["전체"]); query = "";
-            $("#search").value = ""; renderAll();
+            $("#search").value = ""; e.target.value = ""; renderAll();
           } catch (err) {
             console.error(err);
-            alert("파일을 읽는 중 문제가 발생했습니다. .xlsx/.xls/.csv 형식을 사용해주세요.");
+            alert("파일을 읽는 중 문제가 발생했습니다. .xlsx/.xls/.csv 형식을 사용해주세요.\n(" + (err && err.message ? err.message : '원인 미상') + ")");
           }
         };
+
         if (ext === "csv") reader.readAsText(file); else reader.readAsArrayBuffer(file);
-      }
-
-      $("#file-input").addEventListener("change", (e) => {
-        const file = e.target.files && e.target.files[0]; if (!file) return;
-        processFile(file); e.target.value = ""; // 같은 파일 재업로드 허용
       });
-            const reader = new FileReader();
 
-      reader.onload = () => {
-        try {
-          let wb;
-          if (ext === "csv") {
-            wb = XLSX.read(reader.result, { type: "string" });
-          } else {
-            wb = XLSX.read(new Uint8Array(reader.result), { type: "array" });
-          }
-          const wsName = wb.SheetNames[0];
-          const ws = wb.Sheets[wsName];
-          const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-          if (!rows || rows.length === 0) throw new Error("빈 시트");
-
-          const headerRow = rows[0].map(h => String(h || "").trim());
-          const lower = headerRow.map(h => h.toLowerCase());
-          let nameIdx = -1;
-          for (let i = 0; i < lower.length; i++) if (NAME_HEADERS.includes(lower[i])) { nameIdx = i; break; }
-          const hasHeader = nameIdx !== -1;
-          if (!hasHeader) nameIdx = 0;
-
-          const start = hasHeader ? 1 : 0;
-          const parsed = [];
-          for (let r = start; r < rows.length; r++) {
-            const row = rows[r] || [];
-            const rawName = row[nameIdx];
-            if (rawName == null) continue;
-            const { category, name } = parseCategoryAndName(rawName);
-            if (!String(name).trim()) continue;
-            parsed.push({ id: `p-${r}-${Date.now()}`, category, name: String(name).trim() });
-          }
-
-          if (parsed.length === 0) {
-            alert("가져올 데이터가 없습니다. 첫 열에 [카테고리] 이름 형식으로 부품명을 두세요.");
-            return;
-          }
-          parts = parsed;
-          selected = {};
-          activeCategories = new Set(["전체"]);
-          query = "";
-          $("#search").value = "";
-          e.target.value = ""; // 같은 파일 재업로드 허용
-          renderAll();
-        } catch (err) {
-          console.error(err);
-          alert("파일을 읽는 중 문제가 발생했습니다. .xlsx/.xls/.csv 형식을 사용해주세요.");
-        }
-      };
-
-      if (ext === "csv") reader.readAsText(file);
-      else reader.readAsArrayBuffer(file);
+      // 초기 렌더
+      renderAll();
     });
-
-    // 초기 렌더
-    renderAll();
   </script>
 </body>
 </html>
