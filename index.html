@@ -20,7 +20,7 @@
     <header class="mb-6">
       <h1 class="text-2xl md:text-3xl font-semibold">부품 선택 → 쉼표 데이터 생성기</h1>
       <p class="text-neutral-400 mt-1 text-sm md:text-base">
-        엑셀(.xlsx/.xls/.csv) 업로드 → 카테고리 선택 → 검색(띄어쓰기 무시) → 체크/수량 →
+        엑셀(.xlsx/.xls/.csv) 업로드 → 카테고리 다중 선택 → 검색(띄어쓰기 무시) → 체크/수량 →
         <span class="font-mono">이름x수량</span> 또는 <span class="font-mono">이름</span> 으로 출력 (공백 없음)
       </p>
     </header>
@@ -104,7 +104,7 @@
     ]; // 업로드 전 샘플
 
     let selected = {}; // id -> qty
-    let activeCategory = "전체";
+    let activeCategories = new Set(["전체"]);
     let query = "";
 
     // ===== 렌더링 =====
@@ -116,7 +116,7 @@
     function getFiltered() {
       const qn = normKR(query);
       return parts.filter(p => {
-        const catOk = activeCategory === "전체" || p.category === activeCategory;
+        const catOk = activeCategories.has("전체") || activeCategories.size === 0 || activeCategories.has(p.category);
         const txtOk = !qn || normKR(p.name).includes(qn);
         return catOk && txtOk;
       });
@@ -127,12 +127,23 @@
       bar.innerHTML = "";
       const cats = buildCategories();
       cats.forEach(cat => {
+        const isActive = activeCategories.has("전체") ? (cat === "전체") : activeCategories.has(cat);
         const btn = document.createElement("button");
         btn.textContent = cat;
-        btn.className = `rounded-full px-3 py-1 border ${activeCategory === cat ? "bg-indigo-600 border-indigo-500" : "bg-neutral-900 border-neutral-700 hover:bg-neutral-800"}`;
-        btn.addEventListener("click", () => { activeCategory = cat; renderAll(); });
+        btn.className = `rounded-full px-3 py-1 border ${isActive ? "bg-indigo-600 border-indigo-500" : "bg-neutral-900 border-neutral-700 hover:bg-neutral-800"}`;
+        btn.addEventListener("click", () => {
+          if (cat === "전체") {
+            activeCategories = new Set(["전체"]);
+          } else {
+            if (activeCategories.has("전체")) activeCategories.delete("전체");
+            if (activeCategories.has(cat)) activeCategories.delete(cat); else activeCategories.add(cat);
+            if (activeCategories.size === 0) activeCategories.add("전체");
+          }
+          renderAll();
+        });
         bar.appendChild(btn);
       });
+    });
     }
 
     function renderList() {
@@ -284,7 +295,7 @@
           }
           parts = parsed;
           selected = {};
-          activeCategory = "전체";
+          activeCategories = new Set(["전체"]);
           query = "";
           $("#search").value = "";
           e.target.value = ""; // 같은 파일 재업로드 허용
@@ -304,3 +315,4 @@
   </script>
 </body>
 </html>
+
