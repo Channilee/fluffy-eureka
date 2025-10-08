@@ -5,18 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>부품 선택기</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- XLSX 라이브러리 (엑셀 파싱용) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body class="bg-gray-50 min-h-screen p-4">
   <div class="max-w-5xl mx-auto bg-white shadow-md rounded-2xl p-6">
     <div class="flex justify-between items-center mb-4">
       <h1 class="text-xl font-semibold text-gray-800">부품 선택기</h1>
       <label class="cursor-pointer text-sm bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-md">
-        CSV 업로드
-        <input type="file" accept=".csv" id="fileInput" class="hidden" />
+        파일 업로드
+        <input type="file" accept=".csv,.xlsx,.xls" id="fileInput" class="hidden" />
       </label>
     </div>
 
-    <!-- 부품 리스트 테이블 -->
     <table class="w-full border-collapse text-sm text-left">
       <thead class="bg-gray-100 text-gray-600 border-b">
         <tr>
@@ -27,7 +28,7 @@
         </tr>
       </thead>
       <tbody id="partsTable" class="divide-y divide-gray-200">
-        <!-- 로드된 부품 행이 여기 들어옴 -->
+        <!-- 부품 데이터가 여기 표시됨 -->
       </tbody>
     </table>
   </div>
@@ -36,45 +37,83 @@
     const fileInput = document.getElementById('fileInput');
     const partsTable = document.getElementById('partsTable');
 
-    // 📦 페이지 로드 시 localStorage에 저장된 데이터 복원
+    // 🔹 페이지 로드시 localStorage 복원
     window.addEventListener('load', () => {
-      const savedCSV = localStorage.getItem('partsData');
-      if (savedCSV) loadPartsFromCSV(savedCSV);
+      const savedData = localStorage.getItem('partsData');
+      if (savedData) {
+        try {
+          const parsed = JSON.parse(savedData);
+          renderTable(parsed);
+        } catch {
+          console.error("저장된 데이터 파싱 실패");
+        }
+      }
     });
 
-    // 📤 CSV 업로드 핸들러
-    fileInput.addEventListener('change', (event) => {
-      const file = event.target.files[0];
+    // 🔹 파일 업로드 이벤트
+    fileInput.addEventListener('change', handleFileUpload);
+
+    async function handleFileUpload(e) {
+      const file = e.target.files[0];
       if (!file) return;
 
+      const ext = file.name.split('.').pop().toLowerCase();
+
+      if (ext === 'csv') {
+        readCSV(file);
+      } else if (ext === 'xlsx' || ext === 'xls') {
+        readXLSX(file);
+      } else {
+        alert('지원되지 않는 파일 형식입니다. CSV 또는 XLSX 파일을 업로드하세요.');
+      }
+    }
+
+    // 📘 XLSX 파일 읽기
+    function readXLSX(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+        localStorage.setItem('partsData', JSON.stringify(jsonData));
+        renderTable(jsonData);
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    // 📄 CSV 파일 읽기
+    function readCSV(file) {
       const reader = new FileReader();
       reader.onload = (e) => {
         const csvText = e.target.result;
-        localStorage.setItem('partsData', csvText); // localStorage에 저장
-        loadPartsFromCSV(csvText); // 화면 갱신
+        const rows = csvText.trim().split('\n').map(r => r.split(','));
+        const headers = rows[0].map(h => h.trim());
+        const data = rows.slice(1).map(row => {
+          const obj = {};
+          headers.forEach((h, i) => obj[h] = row[i] ? row[i].trim() : '');
+          return obj;
+        });
+
+        localStorage.setItem('partsData', JSON.stringify(data));
+        renderTable(data);
       };
-      reader.readAsText(file);
-    });
+      reader.readAsText(file, 'utf-8');
+    }
 
-    // 📋 CSV 파싱 & 테이블 렌더링
-    function loadPartsFromCSV(csvText) {
-      const rows = csvText.trim().split('\n').map(r => r.split(','));
-      const headers = rows[0];
-      const dataRows = rows.slice(1);
-
-      partsTable.innerHTML = ''; // 기존 리스트 비우기
-
-      dataRows.forEach((cols) => {
-        const part = {};
-        headers.forEach((h, i) => (part[h.trim()] = cols[i]?.trim() ?? ''));
-
+    // 📋 테이블 렌더링
+    function renderTable(data) {
+      partsTable.innerHTML = '';
+      data.forEach(part => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td class="p-2">${part.category || ''}</td>
           <td class="p-2">${part.name || ''}</td>
           <td class="p-2">${part.qty || ''}</td>
           <td class="p-2 text-center">
-            <button class="text-blue-600 hover:text-blue-800 font-medium text-xs" 
+            <button class="text-blue-600 hover:text-blue-800 font-medium text-xs"
                     onclick="copyPartInfo(this, ${JSON.stringify(part).replace(/"/g, '&quot;')})">
               복사
             </button>
@@ -84,18 +123,20 @@
       });
     }
 
-    // ✅ 버튼에 피드백 표시하는 복사 기능
+    // ✅ 자연스러운 복사 피드백
     function copyPartInfo(button, part) {
-      const textToCopy = `${part.category}, ${part.name}, ${part.qty}`;
+      const textToCopy = `${part.category || ''}, ${part.name || ''}, ${part.qty || ''}`;
       navigator.clipboard.writeText(textToCopy).then(() => {
         const originalText = button.textContent;
         button.textContent = '복사되었습니다 ✅';
         button.disabled = true;
-
         setTimeout(() => {
           button.textContent = originalText;
           button.disabled = false;
         }, 1500);
+      }).catch(err => {
+        console.error('클립보드 복사 실패:', err);
+        alert('복사 기능이 지원되지 않는 브라우저입니다.');
       });
     }
   </script>
