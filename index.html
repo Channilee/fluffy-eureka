@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>부품 선택 → 쉼표 데이터 생성기 (안정화/단일태그/공용/다중태그)</title>
+  <title>부품 선택 → 쉼표 데이터 생성기 (매핑 지원/안정화)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- XLSX 메인 CDN -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -13,6 +13,7 @@
     .custom-scroll::-webkit-scrollbar-track { background: #18181b; }
     .dropzone { border: 2px dashed #3f3f46; border-radius: 16px; }
     .dropzone.dragover { background: rgba(99,102,241,0.08); border-color: #6366f1; }
+    .panel { border: 1px solid #262626; border-radius: 16px; background: #0b0b0c; }
   </style>
 </head>
 <body class="min-h-screen bg-neutral-950 text-neutral-100">
@@ -26,9 +27,7 @@
         <button id="reset-btn" class="rounded-2xl px-3 py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700">
           데이터 초기화
         </button>
-        <span id="file-info" class="text-xs text-neutral-400">
-          엑셀(.xlsx, .xls) 파일을 업로드하세요.
-        </span>
+        <span id="file-info" class="text-xs text-neutral-400">엑셀(.xlsx, .xls) 파일을 업로드하세요.</span>
       </div>
 
       <!-- 드래그&드롭 영역 -->
@@ -36,9 +35,39 @@
         파일을 이 영역으로 드래그&드롭하거나, 상단의 파일 업로드 버튼을 사용하세요.
       </div>
 
-      <div id="category-bar" class="flex items-center gap-2 overflow-x-auto custom-scroll mt-2"></div>
+      <!-- 매핑 패널 -->
+      <div id="mapping-panel" class="panel p-4 hidden">
+        <div class="flex items-center justify-between">
+          <h3 class="font-semibold">열 매핑 설정</h3>
+          <span id="mapping-hint" class="text-xs text-neutral-400"></span>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+          <div>
+            <label class="text-sm text-neutral-300">태그 열</label>
+            <select id="map-tag-col" class="w-full mt-1 rounded-xl px-3 py-2 bg-neutral-900 border border-neutral-700"></select>
+          </div>
+          <div>
+            <label class="text-sm text-neutral-300">부품명 열</label>
+            <select id="map-name-col" class="w-full mt-1 rounded-xl px-3 py-2 bg-neutral-900 border border-neutral-700"></select>
+          </div>
+          <div class="flex items-end">
+            <label class="inline-flex items-center gap-2 mt-6">
+              <input id="map-has-header" type="checkbox" class="h-5 w-5 accent-indigo-500" />
+              <span class="text-sm">첫 행은 헤더</span>
+            </label>
+          </div>
+        </div>
+        <div class="mt-3">
+          <div class="text-sm text-neutral-400 mb-1">미리보기(최대 10행)</div>
+          <div id="map-preview" class="text-sm bg-neutral-900 border border-neutral-800 rounded-xl p-3 max-h-40 overflow-auto"></div>
+        </div>
+        <div class="flex items-center gap-2 mt-3">
+          <button id="map-apply" class="rounded-xl px-4 py-2 bg-indigo-600 hover:bg-indigo-500">적용하기</button>
+          <button id="map-cancel" class="rounded-xl px-4 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700">취소</button>
+        </div>
+      </div>
 
-      <!-- 에러/진행 상태 -->
+      <div id="category-bar" class="flex items-center gap-2 overflow-x-auto custom-scroll mt-2"></div>
       <div id="status" class="text-xs text-neutral-400"></div>
     </section>
 
@@ -80,7 +109,7 @@
   </main>
 
   <script>
-    // XLSX Fallback Loader: 메인 CDN이 막혔을 경우 자동 대체 로드
+    // ===== XLSX 로더 보강: 메인 CDN 실패 시 대체 =====
     async function ensureXLSX() {
       if (window.XLSX) return true;
       return new Promise((resolve) => {
@@ -93,28 +122,32 @@
     }
 
     // ===== 상수 & 유틸 =====
-    const STORAGE_KEY_V2 = 'gcoo.parts-selector.v2';
-    const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명","품목","제품명"];
-    const CATEGORY_HEADERS = ["category","cat","tag","tags","카테고리","분류","태그"];
+    const STORAGE_KEY = 'gcoo.parts-selector.v3'; // v3: 매핑/태그배열 구조
     const COMMON_TAG = "공용";
+    const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명","품목","제품명"];
+    const TAG_HEADERS  = ["category","cat","tag","tags","카테고리","분류","태그"];
 
     const $ = (sel) => document.querySelector(sel);
     const normKR = (s) => (s || "").normalize("NFKD").toLowerCase().replace(/\s+/g, "");
-
-    function setStatus(msg, isError=false) {
+    const setStatus = (msg, isError=false) => {
       const el = $("#status");
       el.textContent = msg || "";
       el.className = "text-xs " + (isError ? "text-red-400" : "text-neutral-400");
-    }
+    };
+    const colLetter = (i) => {
+      let s = ""; i = Number(i);
+      while (i >= 0) { s = String.fromCharCode((i % 26) + 65) + s; i = Math.floor(i / 26) - 1; }
+      return s;
+    };
 
-    // [카테고리] 접두 제거
+    // 이름 열에 [태그] 접두가 섞여있으면 제거
     function stripBracketPrefix(raw) {
       const str = String(raw ?? "").trim();
       const m = str.match(/^\s*\[[^\]]+\]\s*(.*)$/);
       return m ? (m[1] || "").trim() : str;
     }
 
-    // 단일열 구포맷: [카테고리] 이름
+    // 단일열 구형 포맷: [카테고리] 이름
     function parseBracketed(raw) {
       const str = String(raw ?? "").trim();
       const m = str.match(/^\s*\[([^\]]+)\]\s*(.*)$/);
@@ -131,37 +164,43 @@
       const raw = String(catString ?? "").trim();
       if (!raw) return ["기타"];
       const arr = raw.split("/").map(s => s.trim()).filter(Boolean);
-      return Array.from(new Set(arr)); // 중복 제거
+      return Array.from(new Set(arr));
     }
 
     // ===== 상태 =====
     // parts: { id, tags: string[], name, normName }
     let parts = [];
-    let selected = {};              // id -> qty
-    let activeCategory = null;      // 단일 선택(없으면 null=전체 보기)
+    let selected = {};            // id -> qty
+    let activeCategory = null;    // 단일 선택; null이면 전체 보기
     let query = "";
     let lastFileName = "";
+    let lastSheetName = "";
+
+    // 업로드된 시트 raw rows(매핑 UI용)
+    let rawRows = [];
+    let mapState = { tagIdx: 0, nameIdx: 1, hasHeader: true };
 
     // ===== 로컬 스토리지 =====
     function saveState() {
       try {
-        const payload = { parts, selected, activeCategory, query, meta: { fileName: lastFileName } };
-        localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(payload));
-      } catch (e) {
-        console.warn("상태 저장 실패:", e);
-      }
+        const payload = {
+          v: 3, parts, selected, activeCategory, query,
+          meta: { fileName: lastFileName, sheetName: lastSheetName, mapping: mapState }
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      } catch (e) { console.warn("상태 저장 실패:", e); }
     }
 
     function loadState() {
       try {
-        const raw = localStorage.getItem(STORAGE_KEY_V2);
+        const raw = localStorage.getItem(STORAGE_KEY);
         if (!raw) return false;
         const data = JSON.parse(raw);
-        if (!data || !Array.isArray(data.parts)) return false;
+        if (!data || data.v !== 3 || !Array.isArray(data.parts)) return false;
 
         parts = data.parts.map(p => ({
-          id: p.id || `${(p.name||"")}||${(Array.isArray(p.tags)?p.tags:splitTags("기타")).slice().sort().join('/')}`,
-          tags: Array.isArray(p.tags) ? p.tags : splitTags("기타"),
+          id: p.id || `${(p.name||"")}||${(Array.isArray(p.tags)?p.tags:["기타"]).slice().sort().join('/')}`,
+          tags: Array.isArray(p.tags) ? p.tags : ["기타"],
           name: stripBracketPrefix(p.name || ""),
           normName: p.normName || normKR(p.name || "")
         }));
@@ -169,6 +208,8 @@
         query = data.query || "";
         activeCategory = data.activeCategory || null;
         lastFileName = data.meta?.fileName || "";
+        lastSheetName = data.meta?.sheetName || "";
+        mapState = data.meta?.mapping || mapState;
         return parts.length > 0;
       } catch (e) {
         console.warn("상태 로드 실패:", e);
@@ -210,7 +251,7 @@
         btn.textContent = cat;
         btn.className = `rounded-full px-3 py-1 border select-none ${isActive ? "bg-indigo-600 border-indigo-500" : "bg-neutral-900 border-neutral-700 hover:bg-neutral-800"}`;
         btn.addEventListener("click", () => {
-          activeCategory = (activeCategory === cat) ? null : cat; // 다시 클릭하면 해제(전체 보기)
+          activeCategory = (activeCategory === cat) ? null : cat; // 같은 태그 클릭하면 해제(전체 보기)
           saveState();
           renderCategoryBar();
           renderList();
@@ -278,3 +319,423 @@
 
         // 체크박스(크게)
         const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = isChecked;
+        cb.className = "h-8 w-8 accent-indigo-500";
+        cb.setAttribute("aria-label", "선택");
+        cb.addEventListener("change", () => {
+          if (cb.checked) {
+            selected[p.id] = Math.max(1, Number(qty) || 1);
+          } else {
+            delete selected[p.id];
+          }
+          li.className = liBaseClass(cb.checked);
+          renderSelectedChips();
+          renderOutput();
+          saveState();
+        });
+
+        // 정보 영역(전체 클릭 토글)
+        const infoWrap = document.createElement("div");
+        infoWrap.className = "flex-1 cursor-pointer select-none";
+        const infoInner = document.createElement("div");
+        infoInner.className = "flex items-center gap-2 flex-wrap";
+
+        // 태그 칩들
+        p.tags.forEach(t => {
+          const tagChip = document.createElement("span");
+          tagChip.className = "text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 whitespace-nowrap";
+          tagChip.textContent = `[${t}]`;
+          infoInner.appendChild(tagChip);
+        });
+
+        // 이름
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "whitespace-normal break-words";
+        nameSpan.textContent = p.name;
+        infoInner.appendChild(nameSpan);
+
+        infoWrap.addEventListener("click", () => {
+          toggleSelectionById(p.id, li, cb);
+        });
+        infoWrap.appendChild(infoInner);
+
+        // 수량
+        const qtyWrap = document.createElement("div");
+        qtyWrap.className = "flex items-center gap-2";
+        const qtyLbl = document.createElement("span");
+        qtyLbl.className = "text-sm text-neutral-400";
+        qtyLbl.textContent = "수량";
+
+        const qtyInp = document.createElement("input");
+        qtyInp.type = "number";
+        qtyInp.min = "1";
+        qtyInp.value = String(qty);
+        qtyInp.inputMode = "numeric";
+        qtyInp.pattern = "[0-9]*";
+        qtyInp.className = "w-20 rounded-xl px-3 py-1 bg-neutral-900 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500";
+
+        const setQty = (val) => {
+          const v = Math.max(1, Math.floor(Number(val) || 1));
+          qtyInp.value = String(v);
+          selected[p.id] = v;
+          if (!cb.checked) cb.checked = true;
+          li.className = liBaseClass(true);
+          renderSelectedChips();
+          renderOutput();
+          saveState();
+        };
+
+        qtyInp.addEventListener("input", () => setQty(qtyInp.value));
+
+        // +/− 버튼(크고 터치 친화)
+        const minusBtn = document.createElement("button");
+        minusBtn.textContent = "−";
+        minusBtn.className = "px-4 py-2 bg-neutral-800 rounded-lg hover:bg-neutral-700 text-2xl";
+        minusBtn.setAttribute("aria-label", "수량 감소");
+        minusBtn.addEventListener("click", () => setQty(Math.max(1, Number(qtyInp.value) - 1)));
+
+        const plusBtn = document.createElement("button");
+        plusBtn.textContent = "+";
+        plusBtn.className = "px-4 py-2 bg-neutral-800 rounded-lg hover:bg-neutral-700 text-2xl";
+        plusBtn.setAttribute("aria-label", "수량 증가");
+        plusBtn.addEventListener("click", () => setQty(Number(qtyInp.value) + 1));
+
+        qtyWrap.append(qtyLbl, qtyInp, minusBtn, plusBtn);
+
+        li.append(cb, infoWrap, qtyWrap);
+        ul.appendChild(li);
+      });
+
+      container.appendChild(ul);
+      renderSelectedChips();
+      renderOutput();
+    }
+
+    function renderSelectedChips() {
+      const box = $("#selected-chips");
+      box.innerHTML = "";
+      const items = parts.filter(p => selected[p.id] && selected[p.id] > 0);
+      if (items.length === 0) {
+        const span = document.createElement("span");
+        span.className = "text-neutral-500 text-sm";
+        span.textContent = "선택된 항목이 없습니다.";
+        box.appendChild(span);
+        return;
+      }
+      items.forEach(p => {
+        const chip = document.createElement("div");
+        chip.className = "flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-full pl-3 pr-2 py-1";
+        const label = document.createElement("span");
+        label.className = "text-sm";
+        const q = selected[p.id];
+        label.textContent = q === 1 ? p.name : `${p.name}×${q}`;
+        const btn = document.createElement("button");
+        btn.className = "rounded-full px-2 py-1 hover:bg-neutral-800";
+        btn.title = "제거";
+        btn.textContent = "✕";
+        btn.addEventListener("click", () => {
+          delete selected[p.id];
+          saveState();
+          renderList();
+          renderSelectedChips();
+          renderOutput();
+        });
+        chip.append(label, btn);
+        box.appendChild(chip);
+      });
+    }
+
+    function renderOutput() {
+      const out = $("#output");
+      const items = parts
+        .filter(p => selected[p.id] && selected[p.id] > 0)
+        .map(p => {
+          const q = selected[p.id];
+          return q === 1 ? `${p.name}` : `${p.name}x${q}`;
+        });
+      out.value = items.join(",").replace(/\s+/g, ""); // 내부 공백 완전 제거
+      $("#copy-btn").disabled = out.value.length === 0;
+    }
+
+    function renderAll() {
+      renderCategoryBar();
+      renderList();
+      renderSelectedChips();
+      renderOutput();
+    }
+
+    // ===== 파일/시트 처리 =====
+    function pickFirstNonEmptySheet(wb) {
+      for (const name of wb.SheetNames) {
+        const ws = wb.Sheets[name];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
+        const hasData = Array.isArray(rows) && rows.some(r => Array.isArray(r) && r.some(c => String(c ?? "").trim() !== ""));
+        if (hasData) return { ws, rows, sheetName: name };
+      }
+      return { ws: null, rows: [], sheetName: "" };
+    }
+
+    // 자동 매핑 제안
+    function suggestMapping(rows) {
+      const header = (rows[0] || []).map(v => String(v ?? "").trim());
+      const lower = header.map(v => v.toLowerCase());
+      let tagIdx = -1, nameIdx = -1;
+      for (let i = 0; i < lower.length; i++) {
+        if (tagIdx === -1 && TAG_HEADERS.includes(lower[i])) tagIdx = i;
+        if (nameIdx === -1 && NAME_HEADERS.includes(lower[i])) nameIdx = i;
+      }
+      let hasHeader = (tagIdx !== -1 || nameIdx !== -1);
+      // 기본값 보정
+      const colMax = Math.max(header.length, ...rows.slice(0, 200).map(r => Array.isArray(r) ? r.length : 0));
+      if (tagIdx === -1 && nameIdx === -1 && colMax >= 2) {
+        tagIdx = 0; nameIdx = 1; hasHeader = false;
+      } else {
+        if (tagIdx === -1 && nameIdx !== -1) tagIdx = (nameIdx === 0 ? 1 : 0);
+        if (nameIdx === -1 && tagIdx !== -1) nameIdx = (tagIdx === 0 ? 1 : 0);
+        if (tagIdx === nameIdx) {
+          for (let i = 0; i < colMax; i++) { if (i !== tagIdx) { nameIdx = i; break; } }
+        }
+      }
+      return { tagIdx, nameIdx, hasHeader, colMax };
+    }
+
+    function parseRows(rows, tagIdx, nameIdx, hasHeader) {
+      const start = hasHeader ? 1 : 0;
+      const parsed = [];
+      let skipped = 0;
+      for (let r = start; r < rows.length; r++) {
+        const row = rows[r] || [];
+        let cat = tagIdx >= 0 ? String(row[tagIdx] ?? "").trim() : "";
+        let nameRaw = String(row[nameIdx] ?? "").trim();
+        if (!cat && !nameRaw) { skipped++; continue; }
+        if (!cat) {
+          const legacy = parseBracketed(nameRaw);
+          if (legacy) { cat = legacy.category; nameRaw = legacy.name; }
+        }
+        const tags = splitTags(cat || "기타");
+        const name = stripBracketPrefix(nameRaw);
+        if (!name) { skipped++; continue; }
+        const id = `${name}||${tags.slice().sort().join('/')}`;
+        parsed.push({ id, tags, name, normName: normKR(name) });
+      }
+      return { parsed, skipped };
+    }
+
+    // ===== 매핑 UI =====
+    function showMappingPanel(rows, suggestion) {
+      const panel = $("#mapping-panel");
+      const tagSel = $("#map-tag-col");
+      const nameSel = $("#map-name-col");
+      const headerCb = $("#map-has-header");
+      const preview = $("#map-preview");
+      const hint = $("#mapping-hint");
+
+      // 옵션 구성
+      const colMax = Math.max((rows[0] || []).length, ...rows.slice(0, 200).map(r => Array.isArray(r) ? r.length : 0));
+      tagSel.innerHTML = ""; nameSel.innerHTML = "";
+      for (let i = 0; i < colMax; i++) {
+        const opt1 = document.createElement("option");
+        const opt2 = document.createElement("option");
+        const label = `${colLetter(i)}${(rows[0] && rows[0][i]) ? ` · ${String(rows[0][i]).trim()}` : ""}`;
+        opt1.value = String(i); opt1.textContent = label;
+        opt2.value = String(i); opt2.textContent = label;
+        tagSel.appendChild(opt1); nameSel.appendChild(opt2);
+      }
+
+      // 제안값 세팅
+      tagSel.value = String(suggestion.tagIdx >= 0 ? suggestion.tagIdx : 0);
+      nameSel.value = String(suggestion.nameIdx >= 0 ? suggestion.nameIdx : Math.min(1, colMax-1));
+      headerCb.checked = !!suggestion.hasHeader;
+      hint.textContent = `자동 제안: 태그=${colLetter(tagSel.value)} / 부품명=${colLetter(nameSel.value)} / 헤더=${headerCb.checked ? "예" : "아니오"}`;
+
+      const updatePreview = () => {
+        const tIdx = Number(tagSel.value);
+        const nIdx = Number(nameSel.value);
+        const hasH = headerCb.checked;
+        const start = hasH ? 1 : 0;
+        const lines = [];
+        for (let r = start; r < rows.length && lines.length < 10; r++) {
+          const row = rows[r] || [];
+          const cat = String(row[tIdx] ?? "").trim();
+          const nmRaw = String(row[nIdx] ?? "").trim();
+          const nm = stripBracketPrefix(nmRaw);
+          if (!cat && !nm) continue;
+          const tags = splitTags(cat || "기타");
+          lines.push(`[${tags.join('/')}] ${nm}`);
+        }
+        preview.textContent = lines.length ? lines.join("\n") : "(데이터 미리보기 없음)";
+        mapState = { tagIdx: tIdx, nameIdx: nIdx, hasHeader: hasH };
+      };
+      updatePreview();
+      tagSel.onchange = updatePreview;
+      nameSel.onchange = updatePreview;
+      headerCb.onchange = updatePreview;
+
+      $("#map-apply").onclick = () => {
+        const { parsed, skipped } = parseRows(rows, mapState.tagIdx, mapState.nameIdx, mapState.hasHeader);
+        if (parsed.length === 0) {
+          alert("파싱 결과가 0건입니다. 열 선택과 헤더 여부를 다시 확인해주세요.");
+          return;
+        }
+        parts = parsed;
+        selected = {};
+        activeCategory = null;
+        query = "";
+        $("#search").value = "";
+        saveState();
+        renderAll();
+        setStatus(`매핑 적용됨: ${colLetter(mapState.tagIdx)}(태그), ${colLetter(mapState.nameIdx)}(부품명), 헤더=${mapState.hasHeader ? "예" : "아니오"} | 파싱 ${parts.length}건, 스킵 ${skipped}건`, false);
+        panel.classList.add("hidden");
+      };
+      $("#map-cancel").onclick = () => {
+        panel.classList.add("hidden");
+      };
+
+      panel.classList.remove("hidden");
+    }
+
+    // ===== 파일 업로드 파이프라인 =====
+    async function processFile(file) {
+      setStatus("");
+      const ext = (file.name.split(".").pop() || "").toLowerCase();
+      if (!["xlsx", "xls"].includes(ext)) {
+        setStatus("엑셀 파일만 업로드 가능합니다. (.xlsx, .xls)", true);
+        alert("엑셀 파일만 업로드 가능합니다. (.xlsx, .xls)");
+        return;
+      }
+
+      const ok = await ensureXLSX();
+      if (!ok) {
+        setStatus("XLSX 라이브러리를 불러오지 못했습니다. 네트워크/정책 이슈일 수 있습니다.", true);
+        alert("XLSX 라이브러리를 불러오지 못했습니다.");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const wb = XLSX.read(new Uint8Array(reader.result), { type: "array" });
+          const chosen = pickFirstNonEmptySheet(wb);
+          if (!chosen.ws) throw new Error("모든 시트가 비어 있음");
+          rawRows = chosen.rows;
+          lastSheetName = chosen.sheetName;
+
+          // 자동 매핑 시도
+          const sug = suggestMapping(rawRows);
+          const { parsed } = parseRows(rawRows, sug.tagIdx, sug.nameIdx, sug.hasHeader);
+
+          lastFileName = file.name;
+          updateFileInfo(`${file.name} • ${lastSheetName} 로드됨`);
+
+          if (parsed.length > 0) {
+            // 자동 매핑 성공 → 바로 반영
+            parts = parsed;
+            selected = {};
+            activeCategory = null;
+            query = "";
+            $("#search").value = "";
+            mapState = { tagIdx: sug.tagIdx, nameIdx: sug.nameIdx, hasHeader: sug.hasHeader };
+            saveState();
+            renderAll();
+            setStatus(`자동 매핑 성공: 태그=${colLetter(sug.tagIdx)}, 부품명=${colLetter(sug.nameIdx)}, 헤더=${sug.hasHeader ? "예" : "아니오"} | 총 ${parts.length}건`, false);
+            $("#mapping-panel").classList.add("hidden");
+          } else {
+            // 자동 매핑 실패 → 수동 매핑 패널 노출
+            setStatus("자동 매핑을 수행하지 못했습니다. 상단의 '열 매핑 설정'에서 열을 선택해 주세요.", true);
+            showMappingPanel(rawRows, sug);
+          }
+        } catch (err) {
+          console.error(err);
+          setStatus("파일을 읽는 중 문제가 발생했습니다. 파일 형식/시트/헤더를 확인하세요.", true);
+          alert("파일을 읽는 중 문제가 발생했습니다. 지원 형식: .xlsx / .xls");
+        }
+      };
+      reader.onerror = () => {
+        setStatus("파일을 읽지 못했습니다. 파일 접근 권한 또는 손상 여부를 확인하세요.", true);
+        alert("파일을 읽지 못했습니다.");
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    // ===== 드래그&드롭 =====
+    const dz = $("#dropzone");
+    ["dragenter", "dragover", "dragleave", "drop"].forEach(evt =>
+      dz.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); })
+    );
+    ["dragenter", "dragover"].forEach(evt =>
+      dz.addEventListener(evt, () => dz.classList.add("dragover"))
+    );
+    ["dragleave", "drop"].forEach(evt =>
+      dz.addEventListener(evt, () => dz.classList.remove("dragover"))
+    );
+    dz.addEventListener("drop", (e) => {
+      const file = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) processFile(file);
+    });
+
+    // ===== 이벤트 바인딩 =====
+    $("#search").addEventListener("input", (e) => {
+      query = e.target.value || "";
+      saveState();
+      renderList();
+    });
+
+    $("#clear-btn").addEventListener("click", () => {
+      selected = {};
+      saveState();
+      renderList();
+      renderSelectedChips();
+      renderOutput();
+    });
+
+    $("#reset-btn").addEventListener("click", () => {
+      if (!confirm("저장된 데이터(부품 목록, 선택, 검색/태그/매핑)를 모두 삭제할까요?")) return;
+      parts = [];
+      selected = {};
+      activeCategory = null;
+      query = "";
+      lastFileName = "";
+      lastSheetName = "";
+      rawRows = [];
+      mapState = { tagIdx: 0, nameIdx: 1, hasHeader: true };
+      $("#search").value = "";
+      localStorage.removeItem(STORAGE_KEY);
+      updateFileInfo("엑셀(.xlsx, .xls) 파일을 업로드하세요.");
+      setStatus("");
+      renderAll();
+      $("#mapping-panel").classList.add("hidden");
+    });
+
+    $("#copy-btn").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText($("#output").value);
+        alert("복사되었습니다!");
+      } catch (e) {
+        alert("복사에 실패했어요. 수동으로 복사해 주세요.");
+      }
+    });
+
+    $("#file-input").addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0]; if (!file) return;
+      processFile(file);
+      e.target.value = "";
+    });
+
+    // 초기 로드
+    const restored = loadState();
+    if (restored) {
+      const more = lastSheetName ? ` • ${lastSheetName}` : "";
+      updateFileInfo(`${lastFileName ? `${lastFileName}${more} (저장됨)` : "저장된 데이터"} • 총 ${parts.length}건`);
+    }
+    renderAll();
+
+    // 초기 XLSX 확인
+    (async () => {
+      if (!(await ensureXLSX())) {
+        setStatus("경고: XLSX 라이브러리를 불러오지 못했습니다. 네트워크/정책 차단 가능성.", true);
+      }
+    })();
+  </script>
+</body>
+</html>
