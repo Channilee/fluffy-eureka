@@ -1,144 +1,251 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>부품 선택기</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- XLSX 라이브러리 (엑셀 파싱용) -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>부품 선택기</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  .custom-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
+  .custom-scroll::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 9999px; }
+  .custom-scroll::-webkit-scrollbar-track { background: #18181b; }
+</style>
 </head>
-<body class="bg-gray-50 min-h-screen p-4">
-  <div class="max-w-5xl mx-auto bg-white shadow-md rounded-2xl p-6">
-    <div class="flex justify-between items-center mb-4">
-      <h1 class="text-xl font-semibold text-gray-800">부품 선택기</h1>
-      <label class="cursor-pointer text-sm bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-md">
-        파일 업로드
-        <input type="file" accept=".csv,.xlsx,.xls" id="fileInput" class="hidden" />
-      </label>
-    </div>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+<main class="max-w-5xl mx-auto py-10 px-4">
 
-    <table class="w-full border-collapse text-sm text-left">
-      <thead class="bg-gray-100 text-gray-600 border-b">
-        <tr>
-          <th class="p-2 w-32">카테고리</th>
-          <th class="p-2">부품명</th>
-          <th class="p-2 w-16">수량</th>
-          <th class="p-2 w-20 text-center">복사</th>
-        </tr>
-      </thead>
-      <tbody id="partsTable" class="divide-y divide-gray-200">
-        <!-- 부품 데이터가 여기 표시됨 -->
-      </tbody>
-    </table>
+<!-- 업로드 및 카테고리 -->
+<section class="grid grid-cols-1 gap-3 mb-4">
+  <div class="flex items-center gap-2">
+    <label class="rounded-2xl px-3 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 cursor-pointer">
+      파일 업로드
+      <input id="file-input" type="file" accept=".csv,.xlsx,.xls" class="hidden" />
+    </label>
+  </div>
+  <div id="category-bar" class="flex items-center gap-2 overflow-x-auto custom-scroll"></div>
+</section>
+
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+  <!-- 부품 리스트 -->
+  <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-lg font-semibold">부품 리스트 <span id="count" class="text-neutral-400"></span></h2>
+      <button id="clear-btn" class="rounded-xl px-3 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700">모두 지우기</button>
+    </div>
+    <div class="mb-3">
+      <input id="search" type="text" placeholder="부품 검색..." 
+        class="w-full rounded-2xl px-4 py-2 bg-neutral-900 border border-neutral-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+    </div>
+    <div id="list" class="max-h-[420px] overflow-auto pr-1 custom-scroll"></div>
   </div>
 
-  <script>
-    const fileInput = document.getElementById('fileInput');
-    const partsTable = document.getElementById('partsTable');
+  <!-- 선택된 항목 & 복사 -->
+  <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg flex flex-col">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-lg font-semibold">선택된 항목</h2>
+    </div>
+    <div id="selected-chips" class="flex flex-wrap gap-2 mb-4 min-h-[42px]"></div>
+    <div>
+      <textarea id="output" readonly class="w-full h-32 mt-1 rounded-xl px-3 py-2 bg-black/60 border border-neutral-800 font-mono text-sm focus:outline-none"></textarea>
+      <div class="flex items-center gap-2 mt-2">
+        <button id="copy-btn" class="rounded-2xl px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">복사</button>
+      </div>
+    </div>
+  </div>
 
-    // 🔹 페이지 로드시 localStorage 복원
-    window.addEventListener('load', () => {
-      const savedData = localStorage.getItem('partsData');
-      if (savedData) {
-        try {
-          const parsed = JSON.parse(savedData);
-          renderTable(parsed);
-        } catch {
-          console.error("저장된 데이터 파싱 실패");
-        }
+</section>
+</main>
+
+<script>
+const $ = (sel) => document.querySelector(sel);
+const normKR = (s) => (s||"").normalize("NFKD").toLowerCase().replace(/\s+/g,"");
+
+const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명"];
+const CATEGORY_HEADERS = ["category","cat","tag","tags","카테고리","분류"];
+
+// ===== 상태 =====
+let parts = [];
+let selected = {};
+let activeCategories = new Set(["전체"]);
+let query = "";
+
+// ===== 렌더링 =====
+function buildCategories() {
+  const set = new Set(parts.map(p => p.category || "기타"));
+  return ["전체", ...Array.from(set)];
+}
+
+function getFiltered() {
+  const qn = normKR(query);
+  return parts.filter(p => {
+    const catOk = activeCategories.has("전체") || activeCategories.size===0 || activeCategories.has(p.category);
+    const txtOk = !qn || normKR(p.name).includes(qn);
+    return catOk && txtOk;
+  });
+}
+
+function renderCategoryBar() {
+  const bar = $("#category-bar");
+  bar.innerHTML = "";
+  buildCategories().forEach(cat=>{
+    const isActive = activeCategories.has("전체")? cat==="전체" : activeCategories.has(cat);
+    const btn = document.createElement("button");
+    btn.textContent = cat;
+    btn.className = `rounded-full px-3 py-1 border ${isActive?"bg-indigo-600 border-indigo-500":"bg-neutral-900 border-neutral-700 hover:bg-neutral-800"}`;
+    btn.addEventListener("click",()=>{
+      if(cat==="전체") activeCategories=new Set(["전체"]);
+      else {
+        if(activeCategories.has("전체")) activeCategories.delete("전체");
+        activeCategories.has(cat)?activeCategories.delete(cat):activeCategories.add(cat);
+        if(activeCategories.size===0) activeCategories.add("전체");
       }
+      renderAll();
+    });
+    bar.appendChild(btn);
+  });
+}
+
+function renderList() {
+  const container = $("#list");
+  container.innerHTML="";
+  const filtered = getFiltered();
+  $("#count").textContent = `(${filtered.length})`;
+  if(filtered.length===0){ container.innerHTML='<div class="text-neutral-500 text-sm py-8 text-center">검색 결과가 없습니다.</div>'; return; }
+
+  const ul = document.createElement("ul");
+  ul.className="space-y-2";
+  filtered.forEach(p=>{
+    const isChecked = selected[p.id]!=null && selected[p.id]>0;
+    const qty = isChecked? selected[p.id]:1;
+
+    const li = document.createElement("li");
+    li.className=`flex items-center gap-3 bg-neutral-950 border border-neutral-800 rounded-xl p-2 ${isChecked?"ring-1 ring-indigo-500/40":""}`;
+
+    const cb = document.createElement("input");
+    cb.type="checkbox"; cb.checked=isChecked; cb.className="h-5 w-5 accent-indigo-500";
+    cb.addEventListener("change", ()=>{
+      if(cb.checked) selected[p.id]=Math.max(1, Number(qty)||1);
+      else delete selected[p.id];
+      renderAll();
     });
 
-    // 🔹 파일 업로드 이벤트
-    fileInput.addEventListener('change', handleFileUpload);
+    const infoWrap = document.createElement("div");
+    infoWrap.className="flex-1"; 
+    infoWrap.innerHTML=`<div class="flex items-center gap-2">
+      <span class="text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 whitespace-nowrap">[${p.category}]</span>
+      <span class="whitespace-normal break-words">${p.name}</span>
+    </div>`;
 
-    async function handleFileUpload(e) {
-      const file = e.target.files[0];
-      if (!file) return;
+    const qtyWrap = document.createElement("div");
+    qtyWrap.className="flex items-center gap-2";
+    const qtyLbl = document.createElement("span"); qtyLbl.className="text-sm text-neutral-400"; qtyLbl.textContent="수량";
+    const qtyInp = document.createElement("input");
+    qtyInp.type="number"; qtyInp.min="1"; qtyInp.value=qty;
+    qtyInp.className="w-20 rounded-xl px-3 py-1 bg-neutral-900 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500";
+    qtyInp.addEventListener("input",()=>{
+      const val=Math.max(1,Math.floor(Number(qtyInp.value)||1));
+      qtyInp.value=val; selected[p.id]=val;
+      renderAll();
+    });
+    qtyWrap.append(qtyLbl,qtyInp);
 
-      const ext = file.name.split('.').pop().toLowerCase();
+    li.append(cb,infoWrap,qtyWrap);
+    ul.appendChild(li);
+  });
+  container.appendChild(ul);
+}
 
-      if (ext === 'csv') {
-        readCSV(file);
-      } else if (ext === 'xlsx' || ext === 'xls') {
-        readXLSX(file);
-      } else {
-        alert('지원되지 않는 파일 형식입니다. CSV 또는 XLSX 파일을 업로드하세요.');
-      }
-    }
+function renderSelectedChips() {
+  const box=$("#selected-chips");
+  box.innerHTML="";
+  const items=parts.filter(p=>selected[p.id]);
+  if(items.length===0){ box.innerHTML='<span class="text-neutral-500 text-sm">선택된 항목이 없습니다.</span>'; return; }
+  items.forEach(p=>{
+    const chip=document.createElement("div");
+    chip.className="flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-full pl-3 pr-2 py-1";
+    const span=document.createElement("span"); span.className="text-sm";
+    const q=selected[p.id]; span.textContent=q===1?p.name:`${p.name}×${q}`;
+    const btn=document.createElement("button"); btn.className="rounded-full px-2 py-1 hover:bg-neutral-800"; btn.title="제거"; btn.textContent="✕";
+    btn.addEventListener("click",()=>{ delete selected[p.id]; renderAll(); });
+    chip.append(span,btn); box.appendChild(chip);
+  });
+}
 
-    // 📘 XLSX 파일 읽기
-    function readXLSX(file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+function renderOutput() {
+  const out=$("#output");
+  const items=parts.filter(p=>selected[p.id] && selected[p.id]>0).map(p=>{
+    const q=selected[p.id];
+    return q===1?`${p.name}`:`${p.name}x${q}`;
+  });
+  out.value=items.join(",").replace(/\s+/g,"");
+  $("#copy-btn").disabled = out.value.length===0;
+}
 
-        localStorage.setItem('partsData', JSON.stringify(jsonData));
-        renderTable(jsonData);
-      };
-      reader.readAsArrayBuffer(file);
-    }
+function renderAll(){ renderCategoryBar(); renderList(); renderSelectedChips(); renderOutput(); }
 
-    // 📄 CSV 파일 읽기
-    function readCSV(file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const csvText = e.target.result;
-        const rows = csvText.trim().split('\n').map(r => r.split(','));
-        const headers = rows[0].map(h => h.trim());
-        const data = rows.slice(1).map(row => {
-          const obj = {};
-          headers.forEach((h, i) => obj[h] = row[i] ? row[i].trim() : '');
-          return obj;
-        });
+// ===== 파일 업로드 파서 (CSV/XLSX) =====
+function processFile(file){
+  const ext=(file.name.split(".").pop()||"").toLowerCase();
+  const reader=new FileReader();
 
-        localStorage.setItem('partsData', JSON.stringify(data));
-        renderTable(data);
-      };
-      reader.readAsText(file, 'utf-8');
-    }
+  reader.onload=()=>{
+    try{
+      let parsed=[];
+      if(ext==="csv"){
+        const text=reader.result;
+        const rows=text.trim().split("\n").map(r=>r.split(","));
+        const headers=rows[0].map(h=>h.trim().toLowerCase());
+        for(let i=1;i<rows.length;i++){
+          const row=rows[i];
+          let obj={id:`p-${i}-${Date.now()}`, category: row[0]||"기타", name: row[1]||row[0]||"기타"};
+          parsed.push(obj);
+        }
+      } else if(ext==="xlsx"||ext==="xls"){
+        const data=new Uint8Array(reader.result);
+        const wb=XLSX.read(data,{type:'array'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const jsonData=XLSX.utils.sheet_to_json(ws,{defval:''});
+        parsed=jsonData.map((row,i)=>({id:`p-${i}-${Date.now()}`, category:row.category||row.cat||"기타", name:row.name||row.part||row.부품명||"이름"}));
+      } else { alert("지원되지 않는 파일 형식입니다."); return; }
 
-    // 📋 테이블 렌더링
-    function renderTable(data) {
-      partsTable.innerHTML = '';
-      data.forEach(part => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="p-2">${part.category || ''}</td>
-          <td class="p-2">${part.name || ''}</td>
-          <td class="p-2">${part.qty || ''}</td>
-          <td class="p-2 text-center">
-            <button class="text-blue-600 hover:text-blue-800 font-medium text-xs"
-                    onclick="copyPartInfo(this, ${JSON.stringify(part).replace(/"/g, '&quot;')})">
-              복사
-            </button>
-          </td>
-        `;
-        partsTable.appendChild(tr);
-      });
-    }
+      if(parsed.length===0){ alert("가져올 데이터가 없습니다."); return; }
 
-    // ✅ 자연스러운 복사 피드백
-    function copyPartInfo(button, part) {
-      const textToCopy = `${part.category || ''}, ${part.name || ''}, ${part.qty || ''}`;
-      navigator.clipboard.writeText(textToCopy).then(() => {
-        const originalText = button.textContent;
-        button.textContent = '복사되었습니다 ✅';
-        button.disabled = true;
-        setTimeout(() => {
-          button.textContent = originalText;
-          button.disabled = false;
-        }, 1500);
-      }).catch(err => {
-        console.error('클립보드 복사 실패:', err);
-        alert('복사 기능이 지원되지 않는 브라우저입니다.');
-      });
-    }
-  </script>
+      parts=parsed; selected={}; activeCategories=new Set(["전체"]); query="";
+      $("#search").value="";
+      localStorage.setItem('partsData',JSON.stringify(parts));
+      renderAll();
+    }catch(err){ console.error(err); alert("파일 읽는 중 문제가 발생했습니다."); }
+  };
+
+  if(ext==="csv") reader.readAsText(file,'utf-8'); else reader.readAsArrayBuffer(file);
+}
+
+// ===== 이벤트 =====
+$("#search").addEventListener("input",(e)=>{ query=e.target.value||""; renderAll(); });
+$("#clear-btn").addEventListener("click",()=>{ selected={}; renderAll(); });
+$("#copy-btn").addEventListener("click",()=>{
+  const out=$("#output");
+  navigator.clipboard.writeText(out.value).then(()=>{
+    const btn=$("#copy-btn");
+    const original=btn.textContent;
+    btn.textContent="복사되었습니다 ✅";
+    setTimeout(()=>{ btn.textContent=original; },1500);
+  }).catch(()=>{ alert("복사 실패"); });
+});
+
+$("#file-input").addEventListener("change",(e)=>{
+  const file=e.target.files[0]; if(!file) return; processFile(file); e.target.value="";
+});
+
+// ===== 초기 복원 =====
+window.addEventListener('load',()=>{
+  const saved=localStorage.getItem('partsData');
+  if(saved){ try{ parts=JSON.parse(saved); renderAll(); }catch{} }
+});
+
+renderAll();
+</script>
 </body>
 </html>
