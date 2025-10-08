@@ -1,303 +1,103 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>부품 선택 → 쉼표 데이터 생성기 (단일 파일)</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>부품 선택기</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <style>
-    .custom-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
-    .custom-scroll::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 9999px; }
-    .custom-scroll::-webkit-scrollbar-track { background: #18181b; }
-  </style>
 </head>
-<body class="min-h-screen bg-neutral-950 text-neutral-100">
-  <main class="max-w-5xl mx-auto py-10 px-4">
-    <section class="grid grid-cols-1 gap-3 mb-4">
-      <div class="flex items-center gap-2">
-        <label class="rounded-2xl px-3 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 cursor-pointer">
-          파일 업로드
-          <input id="file-input" type="file" accept="*/*" class="hidden" />
-        </label>
-      </div>
-      <div id="category-bar" class="flex items-center gap-2 overflow-x-auto custom-scroll"></div>
-    </section>
+<body class="bg-gray-50 min-h-screen p-4">
+  <div class="max-w-5xl mx-auto bg-white shadow-md rounded-2xl p-6">
+    <div class="flex justify-between items-center mb-4">
+      <h1 class="text-xl font-semibold text-gray-800">부품 선택기</h1>
+      <label class="cursor-pointer text-sm bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-md">
+        CSV 업로드
+        <input type="file" accept=".csv" id="fileInput" class="hidden" />
+      </label>
+    </div>
 
-    <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="text-lg font-semibold">부품 리스트 <span id="count" class="text-neutral-400"></span></h2>
-          <button id="clear-btn" class="rounded-xl px-3 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700">모두 지우기</button>
-        </div>
-        <div class="mb-3"><input id="search" type="text" placeholder="부품 검색... (띄어쓰기 무시 검색)"
-               class="w-full rounded-2xl px-4 py-2 bg-neutral-900 border border-neutral-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
-        <div id="list" class="max-h-[420px] overflow-auto pr-1 custom-scroll"></div>
-      </div>
-
-      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg flex flex-col">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="text-lg font-semibold">선택된 항목</h2>
-        </div>
-
-        <div id="selected-chips" class="flex flex-wrap gap-2 mb-4 min-h-[42px]"></div>
-
-        <div>
-          <textarea id="output" readonly class="w-full h-32 mt-1 rounded-xl px-3 py-2 bg-black/60 border border-neutral-800 font-mono text-sm focus:outline-none"></textarea>
-          <div class="flex items-center gap-2 mt-2">
-            <button id="copy-btn" class="rounded-2xl px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">복사하기</button>
-          </div>
-        </div>
-      </div>
-    </section>
-  </main>
+    <!-- 부품 리스트 테이블 -->
+    <table class="w-full border-collapse text-sm text-left">
+      <thead class="bg-gray-100 text-gray-600 border-b">
+        <tr>
+          <th class="p-2 w-32">카테고리</th>
+          <th class="p-2">부품명</th>
+          <th class="p-2 w-16">수량</th>
+          <th class="p-2 w-20 text-center">복사</th>
+        </tr>
+      </thead>
+      <tbody id="partsTable" class="divide-y divide-gray-200">
+        <!-- 로드된 부품 행이 여기 들어옴 -->
+      </tbody>
+    </table>
+  </div>
 
   <script>
-    // ===== 상수 & 유틸 =====
-    const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명"];
-    const CATEGORY_HEADERS = ["category","cat","tag","tags","카테고리","분류"];
-    const $ = (sel) => document.querySelector(sel);
-    const normKR = (s) => (s || "").normalize("NFKD").toLowerCase().replace(/\s+/g, "");
+    const fileInput = document.getElementById('fileInput');
+    const partsTable = document.getElementById('partsTable');
 
-    // 단일열 구(舊) 포맷: [카테고리] 이름
-    function parseBracketed(raw) {
-      const str = String(raw ?? "").trim();
-      const m = str.match(/^\s*\[([^\]]+)\]\s*(.*)$/);
-      if (m) {
-        const category = (m[1] || "").trim() || "기타";
-        const name = (m[2] || "").trim() || category;
-        return { category, name };
-      }
-      return null;
-    }
+    // 📦 페이지 로드 시 localStorage에 저장된 데이터 복원
+    window.addEventListener('load', () => {
+      const savedCSV = localStorage.getItem('partsData');
+      if (savedCSV) loadPartsFromCSV(savedCSV);
+    });
 
-    // ===== 상태 =====
-    let parts = [];              // 업로드 전 표시 없음
-    let selected = {};           // id -> qty
-    let activeCategories = new Set(["전체"]);
-    let query = "";
+    // 📤 CSV 업로드 핸들러
+    fileInput.addEventListener('change', (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
 
-    // ===== 렌더링 =====
-    function buildCategories() {
-      const set = new Set(parts.map(p => p.category || "기타"));
-      return ["전체", ...Array.from(set)];
-    }
-
-    function getFiltered() {
-      const qn = normKR(query);
-      return parts.filter(p => {
-        const catOk = activeCategories.has("전체") || activeCategories.size === 0 || activeCategories.has(p.category);
-        const txtOk = !qn || normKR(p.name).includes(qn);
-        return catOk && txtOk;
-      });
-    }
-
-    function renderCategoryBar() {
-      const bar = $("#category-bar");
-      bar.innerHTML = "";
-      const cats = buildCategories();
-      cats.forEach(cat => {
-        const isActive = activeCategories.has("전체") ? (cat === "전체") : activeCategories.has(cat);
-        const btn = document.createElement("button");
-        btn.textContent = cat;
-        btn.className = `rounded-full px-3 py-1 border ${isActive ? "bg-indigo-600 border-indigo-500" : "bg-neutral-900 border-neutral-700 hover:bg-neutral-800"}`;
-        btn.addEventListener("click", () => {
-          if (cat === "전체") {
-            activeCategories = new Set(["전체"]);
-          } else {
-            if (activeCategories.has("전체")) activeCategories.delete("전체");
-            if (activeCategories.has(cat)) activeCategories.delete(cat); else activeCategories.add(cat);
-            if (activeCategories.size === 0) activeCategories.add("전체");
-          }
-          renderAll();
-        });
-        bar.appendChild(btn);
-      });
-    }
-
-    function renderList() {
-      const container = $("#list");
-      container.innerHTML = "";
-      const filtered = getFiltered();
-      $("#count").textContent = `(${filtered.length})`;
-
-      if (filtered.length === 0) {
-        container.innerHTML = '<div class="text-neutral-500 text-sm py-8 text-center">검색 결과가 없습니다.</div>';
-        return;
-      }
-
-      const ul = document.createElement("ul");
-      ul.className = "space-y-2";
-
-      filtered.forEach(p => {
-        const isChecked = selected[p.id] != null && selected[p.id] > 0;
-        const qty = isChecked ? selected[p.id] : 1;
-
-        const li = document.createElement("li");
-        li.className = `flex items-center gap-3 bg-neutral-950 border border-neutral-800 rounded-xl p-2 ${isChecked ? "ring-1 ring-indigo-500/40" : ""}`;
-
-        const cb = document.createElement("input");
-        cb.type = "checkbox"; cb.checked = isChecked; cb.className = "h-5 w-5 accent-indigo-500";
-        cb.addEventListener("change", () => {
-          if (cb.checked) selected[p.id] = Math.max(1, Number(qty) || 1);
-          else delete selected[p.id];
-          renderAll();
-        });
-
-        const infoWrap = document.createElement("div");
-        infoWrap.className = "flex-1";
-        infoWrap.innerHTML = `<div class="flex items-center gap-2">
-          <span class="text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 whitespace-nowrap">[${p.category}]</span>
-          <span class="whitespace-normal break-words">${p.name}</span>
-        </div>`;
-
-        const qtyWrap = document.createElement("div");
-        qtyWrap.className = "flex items-center gap-2";
-        const qtyLbl = document.createElement("span"); qtyLbl.className = "text-sm text-neutral-400"; qtyLbl.textContent = "수량";
-        const qtyInp = document.createElement("input");
-        qtyInp.type = "number"; qtyInp.min = "1"; qtyInp.value = qty; qtyInp.className = "w-20 rounded-xl px-3 py-1 bg-neutral-900 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500";
-        qtyInp.addEventListener("input", () => {
-          const val = Math.max(1, Math.floor(Number(qtyInp.value) || 1));
-          qtyInp.value = String(val);
-          selected[p.id] = val; // 수량 입력 시 자동 선택
-          renderAll();
-        });
-
-        qtyWrap.append(qtyLbl, qtyInp);
-        li.append(cb, infoWrap, qtyWrap);
-        ul.appendChild(li);
-      });
-
-      container.appendChild(ul);
-    }
-
-    function renderSelectedChips() {
-      const box = $("#selected-chips");
-      box.innerHTML = "";
-      const items = parts.filter(p => selected[p.id]);
-      if (items.length === 0) {
-        box.innerHTML = '<span class="text-neutral-500 text-sm">선택된 항목이 없습니다.</span>';
-        return;
-      }
-      items.forEach(p => {
-        const chip = document.createElement("div");
-        chip.className = "flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-full pl-3 pr-2 py-1";
-        const span = document.createElement("span");
-        span.className = "text-sm";
-        const q = selected[p.id];
-        span.textContent = q === 1 ? p.name : `${p.name}×${q}`;
-        const btn = document.createElement("button");
-        btn.className = "rounded-full px-2 py-1 hover:bg-neutral-800"; btn.title = "제거"; btn.textContent = "✕";
-        btn.addEventListener("click", () => { delete selected[p.id]; renderAll(); });
-        chip.append(span, btn); box.appendChild(chip);
-      });
-    }
-
-    function renderOutput() {
-      const out = $("#output");
-      const items = parts
-        .filter(p => selected[p.id] && selected[p.id] > 0)
-        .map(p => {
-          const q = selected[p.id];
-          return q === 1 ? `${p.name}` : `${p.name}x${q}`;
-        });
-      out.value = items.join(",").replace(/\s+/g, "");
-      $("#copy-btn").disabled = out.value.length === 0;
-    }
-
-    function renderAll() {
-      renderCategoryBar();
-      renderList();
-      renderSelectedChips();
-      renderOutput();
-    }
-
-    // ===== 파일 업로드 파서 =====
-    // 지원 포맷:
-    // 1) 두 열: (태그, 이름) — 헤더 없어도 됨. 헤더 있으면 CATEGORY_HEADERS/NAME_HEADERS 중 하나를 인식
-    // 2) 단일 열: [카테고리] 이름
-    function processFile(file) {
-      const ext = (file.name.split(".").pop() || "").toLowerCase();
       const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          let wb;
-          if (ext === "csv") wb = XLSX.read(reader.result, { type: "string" });
-          else wb = XLSX.read(new Uint8Array(reader.result), { type: "array" });
-          const ws = wb.Sheets[wb.SheetNames[0]];
-          const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-          if (!rows || rows.length === 0) throw new Error("빈 시트");
-
-          const headerRow = rows[0].map(h => String(h || "").trim());
-          const lower = headerRow.map(h => h.toLowerCase());
-
-          // 헤더 감지
-          let categoryIdx = -1; for (let i = 0; i < lower.length; i++) if (CATEGORY_HEADERS.includes(lower[i])) { categoryIdx = i; break; }
-          let nameIdx = -1;      for (let i = 0; i < lower.length; i++) if (NAME_HEADERS.includes(lower[i]))      { nameIdx = i; break; }
-          const hasHeader = (categoryIdx !== -1 || nameIdx !== -1);
-
-          // 헤더 없으면: 1열=태그, 2열=이름 (열 1개면 단일열)
-          if (!hasHeader) {
-            const colCount = Math.max(...rows.map(r => Array.isArray(r) ? r.length : 0));
-            if (colCount >= 2) { categoryIdx = 0; nameIdx = 1; }
-            else { categoryIdx = -1; nameIdx = 0; }
-          } else {
-            // 일부만 있을 때 보정
-            if (nameIdx === -1) {
-              nameIdx = lower.findIndex((_, i) => i !== categoryIdx);
-              if (nameIdx === -1) nameIdx = (categoryIdx === 0 ? 1 : 0);
-            }
-            if (categoryIdx === -1) categoryIdx = 0;
-          }
-
-          const start = hasHeader ? 1 : 0;
-          const parsed = [];
-          for (let r = start; r < rows.length; r++) {
-            const row = rows[r] || [];
-            let cat = categoryIdx !== -1 ? String(row[categoryIdx] ?? "").trim() : "";
-            let nameCell = String(row[nameIdx] ?? "").trim();
-            if (!cat && !nameCell) continue;
-
-            // 단일열/구포맷: [카테고리] 이름
-            if (!cat) {
-              const legacy = parseBracketed(nameCell);
-              if (legacy) { cat = legacy.category; nameCell = legacy.name; }
-            }
-
-            const category = cat || "기타";
-            const name = nameCell;
-            if (!name) continue;
-            parsed.push({ id: `p-${r}-${Date.now()}`, category, name });
-          }
-
-          if (parsed.length === 0) {
-            alert("가져올 데이터가 없습니다. 1열=태그, 2열=이름 또는 단일 열([카테고리] 이름) 형식을 사용하세요.");
-            return;
-          }
-          parts = parsed; selected = {}; activeCategories = new Set(["전체"]); query = "";
-          $("#search").value = ""; renderAll();
-        } catch (err) {
-          console.error(err);
-          alert("파일을 읽는 중 문제가 발생했습니다. .xlsx/.xls/.csv 형식을 사용해주세요.");
-        }
+      reader.onload = (e) => {
+        const csvText = e.target.result;
+        localStorage.setItem('partsData', csvText); // localStorage에 저장
+        loadPartsFromCSV(csvText); // 화면 갱신
       };
-      if (ext === "csv") reader.readAsText(file); else reader.readAsArrayBuffer(file);
+      reader.readAsText(file);
+    });
+
+    // 📋 CSV 파싱 & 테이블 렌더링
+    function loadPartsFromCSV(csvText) {
+      const rows = csvText.trim().split('\n').map(r => r.split(','));
+      const headers = rows[0];
+      const dataRows = rows.slice(1);
+
+      partsTable.innerHTML = ''; // 기존 리스트 비우기
+
+      dataRows.forEach((cols) => {
+        const part = {};
+        headers.forEach((h, i) => (part[h.trim()] = cols[i]?.trim() ?? ''));
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="p-2">${part.category || ''}</td>
+          <td class="p-2">${part.name || ''}</td>
+          <td class="p-2">${part.qty || ''}</td>
+          <td class="p-2 text-center">
+            <button class="text-blue-600 hover:text-blue-800 font-medium text-xs" 
+                    onclick="copyPartInfo(this, ${JSON.stringify(part).replace(/"/g, '&quot;')})">
+              복사
+            </button>
+          </td>
+        `;
+        partsTable.appendChild(tr);
+      });
     }
 
-    // ===== 이벤트 =====
-    $("#search").addEventListener("input", (e) => { query = e.target.value || ""; renderAll(); });
-    $("#clear-btn").addEventListener("click", () => { selected = {}; renderAll(); });
-    $("#copy-btn").addEventListener("click", async () => {
-      try { await navigator.clipboard.writeText($("#output").value); alert("복사되었습니다!"); }
-      catch (e) { alert("복사에 실패했어요. 수동으로 복사해 주세요."); }
-    });
-    $("#file-input").addEventListener("change", (e) => {
-      const file = e.target.files && e.target.files[0]; if (!file) return;
-      processFile(file); e.target.value = "";
-    });
+    // ✅ 버튼에 피드백 표시하는 복사 기능
+    function copyPartInfo(button, part) {
+      const textToCopy = `${part.category}, ${part.name}, ${part.qty}`;
+      navigator.clipboard.writeText(textToCopy).then(() => {
+        const originalText = button.textContent;
+        button.textContent = '복사되었습니다 ✅';
+        button.disabled = true;
 
-    // 초기 렌더
-    renderAll();
+        setTimeout(() => {
+          button.textContent = originalText;
+          button.disabled = false;
+        }, 1500);
+      });
+    }
   </script>
 </body>
 </html>
