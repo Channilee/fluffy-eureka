@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>부품 선택 → 쉼표 데이터 생성기 (안정화/단일태그/공용/다중태그)</title>
   <script src="https://cdn.tailwindcss.com"></script>
-
   <!-- XLSX 메인 CDN -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
@@ -40,7 +39,7 @@
       <div id="category-bar" class="flex items-center gap-2 overflow-x-auto custom-scroll mt-2"></div>
 
       <!-- 에러/진행 상태 -->
-      <div id="status" class="text-xs text-red-400"></div>
+      <div id="status" class="text-xs text-neutral-400"></div>
     </section>
 
     <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -95,14 +94,14 @@
 
     // ===== 상수 & 유틸 =====
     const STORAGE_KEY_V2 = 'gcoo.parts-selector.v2';
-    const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명"];
-    const CATEGORY_HEADERS = ["category","cat","tag","tags","카테고리","분류"];
+    const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명","품목","제품명"];
+    const CATEGORY_HEADERS = ["category","cat","tag","tags","카테고리","분류","태그"];
     const COMMON_TAG = "공용";
 
     const $ = (sel) => document.querySelector(sel);
     const normKR = (s) => (s || "").normalize("NFKD").toLowerCase().replace(/\s+/g, "");
 
-    function setStatus(msg, isError=true) {
+    function setStatus(msg, isError=false) {
       const el = $("#status");
       el.textContent = msg || "";
       el.className = "text-xs " + (isError ? "text-red-400" : "text-neutral-400");
@@ -279,157 +278,3 @@
 
         // 체크박스(크게)
         const cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.checked = isChecked;
-        cb.className = "h-8 w-8 accent-indigo-500";
-        cb.setAttribute("aria-label", "선택");
-        cb.addEventListener("change", () => {
-          if (cb.checked) {
-            selected[p.id] = Math.max(1, Number(qty) || 1);
-          } else {
-            delete selected[p.id];
-          }
-          li.className = liBaseClass(cb.checked);
-          renderSelectedChips();
-          renderOutput();
-          saveState();
-        });
-
-        // 정보 영역(전체 클릭 토글)
-        const infoWrap = document.createElement("div");
-        infoWrap.className = "flex-1 cursor-pointer select-none";
-        const infoInner = document.createElement("div");
-        infoInner.className = "flex items-center gap-2 flex-wrap";
-
-        // 태그 칩들
-        p.tags.forEach(t => {
-          const tagChip = document.createElement("span");
-          tagChip.className = "text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 whitespace-nowrap";
-          tagChip.textContent = `[${t}]`;
-          infoInner.appendChild(tagChip);
-        });
-
-        // 이름
-        const nameSpan = document.createElement("span");
-        nameSpan.className = "whitespace-normal break-words";
-        nameSpan.textContent = p.name;
-        infoInner.appendChild(nameSpan);
-
-        // 클릭 시 토글
-        infoWrap.addEventListener("click", () => {
-          toggleSelectionById(p.id, li, cb);
-        });
-        infoWrap.appendChild(infoInner);
-
-        // 수량
-        const qtyWrap = document.createElement("div");
-        qtyWrap.className = "flex items-center gap-2";
-        const qtyLbl = document.createElement("span");
-        qtyLbl.className = "text-sm text-neutral-400";
-        qtyLbl.textContent = "수량";
-
-        const qtyInp = document.createElement("input");
-        qtyInp.type = "number";
-        qtyInp.min = "1";
-        qtyInp.value = String(qty);
-        qtyInp.inputMode = "numeric";
-        qtyInp.pattern = "[0-9]*";
-        qtyInp.className = "w-20 rounded-xl px-3 py-1 bg-neutral-900 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500";
-
-        const setQty = (val) => {
-          const v = Math.max(1, Math.floor(Number(val) || 1));
-          qtyInp.value = String(v);
-          selected[p.id] = v;
-          if (!cb.checked) cb.checked = true;
-          li.className = liBaseClass(true);
-          renderSelectedChips();
-          renderOutput();
-          saveState();
-        };
-
-        qtyInp.addEventListener("input", () => setQty(qtyInp.value));
-
-        // +/− 버튼(크고 터치 친화)
-        const minusBtn = document.createElement("button");
-        minusBtn.textContent = "−";
-        minusBtn.className = "px-4 py-2 bg-neutral-800 rounded-lg hover:bg-neutral-700 text-2xl";
-        minusBtn.setAttribute("aria-label", "수량 감소");
-        minusBtn.addEventListener("click", () => setQty(Math.max(1, Number(qtyInp.value) - 1)));
-
-        const plusBtn = document.createElement("button");
-        plusBtn.textContent = "+";
-        plusBtn.className = "px-4 py-2 bg-neutral-800 rounded-lg hover:bg-neutral-700 text-2xl";
-        plusBtn.setAttribute("aria-label", "수량 증가");
-        plusBtn.addEventListener("click", () => setQty(Number(qtyInp.value) + 1));
-
-        qtyWrap.append(qtyLbl, qtyInp, minusBtn, plusBtn);
-
-        li.append(cb, infoWrap, qtyWrap);
-        ul.appendChild(li);
-      });
-
-      container.appendChild(ul);
-      renderSelectedChips();
-      renderOutput();
-    }
-
-    function renderSelectedChips() {
-      const box = $("#selected-chips");
-      box.innerHTML = "";
-      const items = parts.filter(p => selected[p.id] && selected[p.id] > 0);
-      if (items.length === 0) {
-        const span = document.createElement("span");
-        span.className = "text-neutral-500 text-sm";
-        span.textContent = "선택된 항목이 없습니다.";
-        box.appendChild(span);
-        return;
-      }
-      items.forEach(p => {
-        const chip = document.createElement("div");
-        chip.className = "flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-full pl-3 pr-2 py-1";
-        const label = document.createElement("span");
-        label.className = "text-sm";
-        const q = selected[p.id];
-        label.textContent = q === 1 ? p.name : `${p.name}×${q}`;
-        const btn = document.createElement("button");
-        btn.className = "rounded-full px-2 py-1 hover:bg-neutral-800";
-        btn.title = "제거";
-        btn.textContent = "✕";
-        btn.addEventListener("click", () => {
-          delete selected[p.id];
-          saveState();
-          renderList();
-          renderSelectedChips();
-          renderOutput();
-        });
-        chip.append(label, btn);
-        box.appendChild(chip);
-      });
-    }
-
-    function renderOutput() {
-      const out = $("#output");
-      const items = parts
-        .filter(p => selected[p.id] && selected[p.id] > 0)
-        .map(p => {
-          const q = selected[p.id];
-          return q === 1 ? `${p.name}` : `${p.name}x${q}`;
-        });
-      // 내부 공백 완전 제거
-      out.value = items.join(",").replace(/\s+/g, "");
-      $("#copy-btn").disabled = out.value.length === 0;
-    }
-
-    function renderAll() {
-      renderCategoryBar();
-      renderList();
-      renderSelectedChips();
-      renderOutput();
-    }
-
-    // ===== 파일 업로드 파서 =====
-    function detectHeaderIndices(rows) {
-      const headerRow = (rows[0] || []).map(h => String(h ?? "").trim());
-      const lower = headerRow.map(h => h.toLowerCase());
-      const colCount = headerRow.length;
-
