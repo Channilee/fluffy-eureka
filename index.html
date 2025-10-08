@@ -15,7 +15,6 @@
 <body class="min-h-screen bg-neutral-950 text-neutral-100">
 <main class="max-w-5xl mx-auto py-10 px-4">
 
-<!-- 업로드 및 카테고리 -->
 <section class="grid grid-cols-1 gap-3 mb-4">
   <div class="flex items-center gap-2">
     <label class="rounded-2xl px-3 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 cursor-pointer">
@@ -28,7 +27,6 @@
 
 <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-  <!-- 부품 리스트 -->
   <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg">
     <div class="flex items-center justify-between mb-3">
       <h2 class="text-lg font-semibold">부품 리스트 <span id="count" class="text-neutral-400"></span></h2>
@@ -41,7 +39,6 @@
     <div id="list" class="max-h-[420px] overflow-auto pr-1 custom-scroll"></div>
   </div>
 
-  <!-- 선택된 항목 & 복사 -->
   <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg flex flex-col">
     <div class="flex items-center justify-between mb-3">
       <h2 class="text-lg font-semibold">선택된 항목</h2>
@@ -62,41 +59,44 @@
 const $ = (sel) => document.querySelector(sel);
 const normKR = (s) => (s||"").normalize("NFKD").toLowerCase().replace(/\s+/g,"");
 
-const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명"];
-const CATEGORY_HEADERS = ["category","cat","tag","tags","카테고리","분류"];
+const NAME_HEADERS=["name","part","partname","item","품명","이름","부품","부품명"];
+const CATEGORY_HEADERS=["category","cat","tag","tags","카테고리","분류"];
 
-// ===== 상태 =====
-let parts = [];
-let selected = {};
-let activeCategories = new Set(["전체"]);
-let query = "";
+let parts=[];
+let selected={};
+let activeCategories=new Set(["전체"]);
+let query="";
 
-// ===== 렌더링 =====
-function buildCategories() {
-  const set = new Set(parts.map(p => p.category || "기타"));
-  return ["전체", ...Array.from(set)];
+function stripBracket(name){
+  const m=name.match(/^\s*\[[^\]]+\]\s*(.*)$/);
+  return m ? m[1].trim() : name.trim();
 }
 
-function getFiltered() {
-  const qn = normKR(query);
-  return parts.filter(p => {
-    const catOk = activeCategories.has("전체") || activeCategories.size===0 || activeCategories.has(p.category);
-    const txtOk = !qn || normKR(p.name).includes(qn);
+function buildCategories(){
+  const set=new Set(parts.map(p=>p.category||"기타"));
+  return ["전체",...Array.from(set)];
+}
+
+function getFiltered(){
+  const qn=normKR(query);
+  return parts.filter(p=>{
+    const catOk=activeCategories.has("전체")||activeCategories.size===0||activeCategories.has(p.category);
+    const txtOk=!qn||normKR(p.name).includes(qn);
     return catOk && txtOk;
   });
 }
 
-function renderCategoryBar() {
-  const bar = $("#category-bar");
-  bar.innerHTML = "";
+function renderCategoryBar(){
+  const bar=$("#category-bar");
+  bar.innerHTML="";
   buildCategories().forEach(cat=>{
-    const isActive = activeCategories.has("전체")? cat==="전체" : activeCategories.has(cat);
-    const btn = document.createElement("button");
-    btn.textContent = cat;
-    btn.className = `rounded-full px-3 py-1 border ${isActive?"bg-indigo-600 border-indigo-500":"bg-neutral-900 border-neutral-700 hover:bg-neutral-800"}`;
+    const isActive=activeCategories.has("전체")?cat==="전체":activeCategories.has(cat);
+    const btn=document.createElement("button");
+    btn.textContent=cat;
+    btn.className=`rounded-full px-3 py-1 border ${isActive?"bg-indigo-600 border-indigo-500":"bg-neutral-900 border-neutral-700 hover:bg-neutral-800"}`;
     btn.addEventListener("click",()=>{
       if(cat==="전체") activeCategories=new Set(["전체"]);
-      else {
+      else{
         if(activeCategories.has("전체")) activeCategories.delete("전체");
         activeCategories.has(cat)?activeCategories.delete(cat):activeCategories.add(cat);
         if(activeCategories.size===0) activeCategories.add("전체");
@@ -107,145 +107,52 @@ function renderCategoryBar() {
   });
 }
 
-function renderList() {
-  const container = $("#list");
+function renderList(){
+  const container=$("#list");
   container.innerHTML="";
-  const filtered = getFiltered();
-  $("#count").textContent = `(${filtered.length})`;
+  const filtered=getFiltered();
+  $("#count").textContent=`(${filtered.length})`;
   if(filtered.length===0){ container.innerHTML='<div class="text-neutral-500 text-sm py-8 text-center">검색 결과가 없습니다.</div>'; return; }
-
-  const ul = document.createElement("ul");
-  ul.className="space-y-2";
+  const ul=document.createElement("ul"); ul.className="space-y-2";
   filtered.forEach(p=>{
-    const isChecked = selected[p.id]!=null && selected[p.id]>0;
-    const qty = isChecked? selected[p.id]:1;
+    const isChecked=selected[p.id]!=null && selected[p.id]>0;
+    const qty=isChecked?selected[p.id]:1;
 
-    const li = document.createElement("li");
+    const li=document.createElement("li");
     li.className=`flex items-center gap-3 bg-neutral-950 border border-neutral-800 rounded-xl p-2 ${isChecked?"ring-1 ring-indigo-500/40":""}`;
 
-    const cb = document.createElement("input");
+    const cb=document.createElement("input");
     cb.type="checkbox"; cb.checked=isChecked; cb.className="h-5 w-5 accent-indigo-500";
-    cb.addEventListener("change", ()=>{
-      if(cb.checked) selected[p.id]=Math.max(1, Number(qty)||1);
-      else delete selected[p.id];
-      renderAll();
-    });
+    cb.addEventListener("change",()=>{ if(cb.checked) selected[p.id]=Math.max(1,Number(qty)||1); else delete selected[p.id]; renderAll(); });
 
-    const infoWrap = document.createElement("div");
-    infoWrap.className="flex-1"; 
-    infoWrap.innerHTML=`<div class="flex items-center gap-2">
-      <span class="text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 whitespace-nowrap">[${p.category}]</span>
-      <span class="whitespace-normal break-words">${p.name}</span>
-    </div>`;
+    const infoWrap=document.createElement("div"); infoWrap.className="flex-1";
+    infoWrap.innerHTML=`<div class="flex items-center gap-2"><span class="text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 whitespace-nowrap">[${p.category}]</span><span class="whitespace-normal break-words">${stripBracket(p.name)}</span></div>`;
 
-    const qtyWrap = document.createElement("div");
-    qtyWrap.className="flex items-center gap-2";
-    const qtyLbl = document.createElement("span"); qtyLbl.className="text-sm text-neutral-400"; qtyLbl.textContent="수량";
-    const qtyInp = document.createElement("input");
-    qtyInp.type="number"; qtyInp.min="1"; qtyInp.value=qty;
+    const qtyWrap=document.createElement("div"); qtyWrap.className="flex items-center gap-2";
+    const qtyLbl=document.createElement("span"); qtyLbl.className="text-sm text-neutral-400"; qtyLbl.textContent="수량";
+    const qtyInp=document.createElement("input");
+    qtyInp.type="number"; qtyInp.min="1"; qtyInp.value=qty; qtyInp.inputMode="numeric"; qtyInp.pattern="[0-9]*";
     qtyInp.className="w-20 rounded-xl px-3 py-1 bg-neutral-900 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500";
-    qtyInp.addEventListener("input",()=>{
-      const val=Math.max(1,Math.floor(Number(qtyInp.value)||1));
-      qtyInp.value=val; selected[p.id]=val;
-      renderAll();
-    });
-    qtyWrap.append(qtyLbl,qtyInp);
+    qtyInp.addEventListener("input",()=>{ const val=Math.max(1,Math.floor(Number(qtyInp.value)||1)); qtyInp.value=val; selected[p.id]=val; });
 
-    li.append(cb,infoWrap,qtyWrap);
-    ul.appendChild(li);
+    // 수량 증가/감소 버튼
+    const plusBtn=document.createElement("button"); plusBtn.textContent="+"; plusBtn.className="px-2 py-1 bg-neutral-800 rounded hover:bg-neutral-700";
+    plusBtn.addEventListener("click",()=>{ qtyInp.value=Number(qtyInp.value)+1; qtyInp.dispatchEvent(new Event('input')); });
+    const minusBtn=document.createElement("button"); minusBtn.textContent="-"; minusBtn.className="px-2 py-1 bg-neutral-800 rounded hover:bg-neutral-700";
+    minusBtn.addEventListener("click",()=>{ qtyInp.value=Math.max(1,Number(qtyInp.value)-1); qtyInp.dispatchEvent(new Event('input')); });
+
+    qtyWrap.append(qtyLbl,qtyInp,minusBtn,plusBtn);
+    li.append(cb,infoWrap,qtyWrap); ul.appendChild(li);
   });
   container.appendChild(ul);
 }
 
-function renderSelectedChips() {
-  const box=$("#selected-chips");
-  box.innerHTML="";
+function renderSelectedChips(){
+  const box=$("#selected-chips"); box.innerHTML="";
   const items=parts.filter(p=>selected[p.id]);
   if(items.length===0){ box.innerHTML='<span class="text-neutral-500 text-sm">선택된 항목이 없습니다.</span>'; return; }
   items.forEach(p=>{
-    const chip=document.createElement("div");
-    chip.className="flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-full pl-3 pr-2 py-1";
+    const chip=document.createElement("div"); chip.className="flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-full pl-3 pr-2 py-1";
     const span=document.createElement("span"); span.className="text-sm";
-    const q=selected[p.id]; span.textContent=q===1?p.name:`${p.name}×${q}`;
-    const btn=document.createElement("button"); btn.className="rounded-full px-2 py-1 hover:bg-neutral-800"; btn.title="제거"; btn.textContent="✕";
-    btn.addEventListener("click",()=>{ delete selected[p.id]; renderAll(); });
-    chip.append(span,btn); box.appendChild(chip);
-  });
-}
-
-function renderOutput() {
-  const out=$("#output");
-  const items=parts.filter(p=>selected[p.id] && selected[p.id]>0).map(p=>{
-    const q=selected[p.id];
-    return q===1?`${p.name}`:`${p.name}x${q}`;
-  });
-  out.value=items.join(",").replace(/\s+/g,"");
-  $("#copy-btn").disabled = out.value.length===0;
-}
-
-function renderAll(){ renderCategoryBar(); renderList(); renderSelectedChips(); renderOutput(); }
-
-// ===== 파일 업로드 파서 (CSV/XLSX) =====
-function processFile(file){
-  const ext=(file.name.split(".").pop()||"").toLowerCase();
-  const reader=new FileReader();
-
-  reader.onload=()=>{
-    try{
-      let parsed=[];
-      if(ext==="csv"){
-        const text=reader.result;
-        const rows=text.trim().split("\n").map(r=>r.split(","));
-        const headers=rows[0].map(h=>h.trim().toLowerCase());
-        for(let i=1;i<rows.length;i++){
-          const row=rows[i];
-          let obj={id:`p-${i}-${Date.now()}`, category: row[0]||"기타", name: row[1]||row[0]||"기타"};
-          parsed.push(obj);
-        }
-      } else if(ext==="xlsx"||ext==="xls"){
-        const data=new Uint8Array(reader.result);
-        const wb=XLSX.read(data,{type:'array'});
-        const ws=wb.Sheets[wb.SheetNames[0]];
-        const jsonData=XLSX.utils.sheet_to_json(ws,{defval:''});
-        parsed=jsonData.map((row,i)=>({id:`p-${i}-${Date.now()}`, category:row.category||row.cat||"기타", name:row.name||row.part||row.부품명||"이름"}));
-      } else { alert("지원되지 않는 파일 형식입니다."); return; }
-
-      if(parsed.length===0){ alert("가져올 데이터가 없습니다."); return; }
-
-      parts=parsed; selected={}; activeCategories=new Set(["전체"]); query="";
-      $("#search").value="";
-      localStorage.setItem('partsData',JSON.stringify(parts));
-      renderAll();
-    }catch(err){ console.error(err); alert("파일 읽는 중 문제가 발생했습니다."); }
-  };
-
-  if(ext==="csv") reader.readAsText(file,'utf-8'); else reader.readAsArrayBuffer(file);
-}
-
-// ===== 이벤트 =====
-$("#search").addEventListener("input",(e)=>{ query=e.target.value||""; renderAll(); });
-$("#clear-btn").addEventListener("click",()=>{ selected={}; renderAll(); });
-$("#copy-btn").addEventListener("click",()=>{
-  const out=$("#output");
-  navigator.clipboard.writeText(out.value).then(()=>{
-    const btn=$("#copy-btn");
-    const original=btn.textContent;
-    btn.textContent="복사되었습니다 ✅";
-    setTimeout(()=>{ btn.textContent=original; },1500);
-  }).catch(()=>{ alert("복사 실패"); });
-});
-
-$("#file-input").addEventListener("change",(e)=>{
-  const file=e.target.files[0]; if(!file) return; processFile(file); e.target.value="";
-});
-
-// ===== 초기 복원 =====
-window.addEventListener('load',()=>{
-  const saved=localStorage.getItem('partsData');
-  if(saved){ try{ parts=JSON.parse(saved); renderAll(); }catch{} }
-});
-
-renderAll();
-</script>
-</body>
-</html>
+    const q=selected[p.id]; span.textContent=q===1?stripBracket(p.name):`${stripBracket(p.name)}×${q}`;
+    const btn=document.createElement("button"); btn.className="rounded-full px-2 py-1 hover:bg-neutral-800"; btn.title="제거"
