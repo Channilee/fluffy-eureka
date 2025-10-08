@@ -3,13 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>부품 선택 → 쉼표 데이터 생성기 (단일 선택/공용/다중태그)</title>
+  <title>부품 선택 → 쉼표 데이터 생성기 (안정화/단일태그/공용/다중태그)</title>
   <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- XLSX 메인 CDN -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     .custom-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
     .custom-scroll::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 9999px; }
     .custom-scroll::-webkit-scrollbar-track { background: #18181b; }
+    .dropzone { border: 2px dashed #3f3f46; border-radius: 16px; }
+    .dropzone.dragover { background: rgba(99,102,241,0.08); border-color: #6366f1; }
   </style>
 </head>
 <body class="min-h-screen bg-neutral-950 text-neutral-100">
@@ -27,7 +31,16 @@
           엑셀(.xlsx, .xls) 파일을 업로드하세요.
         </span>
       </div>
-      <div id="category-bar" class="flex items-center gap-2 overflow-x-auto custom-scroll"></div>
+
+      <!-- 드래그&드롭 영역 -->
+      <div id="dropzone" class="dropzone px-4 py-6 text-sm text-neutral-400">
+        파일을 이 영역으로 드래그&드롭하거나, 상단의 파일 업로드 버튼을 사용하세요.
+      </div>
+
+      <div id="category-bar" class="flex items-center gap-2 overflow-x-auto custom-scroll mt-2"></div>
+
+      <!-- 에러/진행 상태 -->
+      <div id="status" class="text-xs text-red-400"></div>
     </section>
 
     <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -68,23 +81,41 @@
   </main>
 
   <script>
+    // XLSX Fallback Loader: 메인 CDN이 막혔을 경우 자동 대체 로드
+    async function ensureXLSX() {
+      if (window.XLSX) return true;
+      return new Promise((resolve) => {
+        const s = document.createElement('script');
+        s.src = 'https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js';
+        s.onload = () => resolve(!!window.XLSX);
+        s.onerror = () => resolve(false);
+        document.head.appendChild(s);
+      });
+    }
+
     // ===== 상수 & 유틸 =====
-    const STORAGE_KEY_V2 = 'gcoo.parts-selector.v2'; // v2: 단일 선택/다중 태그 구조
+    const STORAGE_KEY_V2 = 'gcoo.parts-selector.v2';
     const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명"];
     const CATEGORY_HEADERS = ["category","cat","tag","tags","카테고리","분류"];
-    const COMMON_TAG = "공용"; // 공용 태그는 어떤 태그를 선택해도 항상 포함
+    const COMMON_TAG = "공용";
 
     const $ = (sel) => document.querySelector(sel);
     const normKR = (s) => (s || "").normalize("NFKD").toLowerCase().replace(/\s+/g, "");
 
-    // [카테고리] 접두 제거(표시·출력용)
+    function setStatus(msg, isError=true) {
+      const el = $("#status");
+      el.textContent = msg || "";
+      el.className = "text-xs " + (isError ? "text-red-400" : "text-neutral-400");
+    }
+
+    // [카테고리] 접두 제거
     function stripBracketPrefix(raw) {
       const str = String(raw ?? "").trim();
       const m = str.match(/^\s*\[[^\]]+\]\s*(.*)$/);
       return m ? (m[1] || "").trim() : str;
     }
 
-    // 단일열 구(舊) 포맷: [카테고리] 이름
+    // 단일열 구포맷: [카테고리] 이름
     function parseBracketed(raw) {
       const str = String(raw ?? "").trim();
       const m = str.match(/^\s*\[([^\]]+)\]\s*(.*)$/);
@@ -100,7 +131,8 @@
     function splitTags(catString) {
       const raw = String(catString ?? "").trim();
       if (!raw) return ["기타"];
-      return raw.split("/").map(s => s.trim()).filter(Boolean);
+      const arr = raw.split("/").map(s => s.trim()).filter(Boolean);
+      return Array.from(new Set(arr)); // 중복 제거
     }
 
     // ===== 상태 =====
@@ -114,52 +146,17 @@
     // ===== 로컬 스토리지 =====
     function saveState() {
       try {
-        const payload = {
-          parts, selected, activeCategory, query,
-          meta: { fileName: lastFileName }
-        };
+        const payload = { parts, selected, activeCategory, query, meta: { fileName: lastFileName } };
         localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(payload));
       } catch (e) {
         console.warn("상태 저장 실패:", e);
       }
     }
 
-    // 구버전(v1) 마이그레이션 보조
-    function tryLoadLegacyV1() {
-      try {
-        const raw = localStorage.getItem('gcoo.parts-selector.v1');
-        if (!raw) return false;
-        const data = JSON.parse(raw);
-        if (!data || !Array.isArray(data.parts)) return false;
-
-        parts = data.parts.map(p => {
-          const safeName = stripBracketPrefix(p.name || "");
-          const tags = splitTags(p.category || "기타");
-          return {
-            id: `${safeName}||${tags.slice().sort().join('/')}`,
-            tags,
-            name: safeName,
-            normName: normKR(safeName)
-          };
-        });
-        selected = data.selected || {};
-        query = data.query || "";
-        // v1은 다중 선택이었으므로 첫 태그만 가져오거나 전체 보기(null)로 둔다
-        activeCategory = null;
-        lastFileName = data.meta?.fileName || "";
-        // 저장은 v2 키로
-        saveState();
-        return true;
-      } catch (e) {
-        console.warn("v1 마이그레이션 실패:", e);
-        return false;
-      }
-    }
-
     function loadState() {
       try {
         const raw = localStorage.getItem(STORAGE_KEY_V2);
-        if (!raw) return tryLoadLegacyV1();
+        if (!raw) return false;
         const data = JSON.parse(raw);
         if (!data || !Array.isArray(data.parts)) return false;
 
@@ -214,7 +211,7 @@
         btn.textContent = cat;
         btn.className = `rounded-full px-3 py-1 border select-none ${isActive ? "bg-indigo-600 border-indigo-500" : "bg-neutral-900 border-neutral-700 hover:bg-neutral-800"}`;
         btn.addEventListener("click", () => {
-          activeCategory = (activeCategory === cat) ? null : cat; // 같은 태그 클릭 시 해제 → 전체 보기
+          activeCategory = (activeCategory === cat) ? null : cat; // 다시 클릭하면 해제(전체 보기)
           saveState();
           renderCategoryBar();
           renderList();
@@ -352,7 +349,7 @@
 
         qtyInp.addEventListener("input", () => setQty(qtyInp.value));
 
-        // +/− 버튼(더 크게)
+        // +/− 버튼(크고 터치 친화)
         const minusBtn = document.createElement("button");
         minusBtn.textContent = "−";
         minusBtn.className = "px-4 py-2 bg-neutral-800 rounded-lg hover:bg-neutral-700 text-2xl";
@@ -401,7 +398,7 @@
         btn.addEventListener("click", () => {
           delete selected[p.id];
           saveState();
-          renderList();            // 체크박스/링 표시 동기화를 위해 리스트 갱신
+          renderList();
           renderSelectedChips();
           renderOutput();
         });
@@ -418,7 +415,7 @@
           const q = selected[p.id];
           return q === 1 ? `${p.name}` : `${p.name}x${q}`;
         });
-      // 내부 공백 완전 제거(요구사항)
+      // 내부 공백 완전 제거
       out.value = items.join(",").replace(/\s+/g, "");
       $("#copy-btn").disabled = out.value.length === 0;
     }
@@ -436,23 +433,3 @@
       const lower = headerRow.map(h => h.toLowerCase());
       const colCount = headerRow.length;
 
-      let categoryIdx = -1;
-      let nameIdx = -1;
-
-      for (let i = 0; i = 2) { categoryIdx = 0; nameIdx = 1; }
-        else { categoryIdx = -1; nameIdx = 0; }
-        return { categoryIdx, nameIdx, hasHeader: false };
-      }
-
-      if (colCount === 1) {
-        if (nameIdx === -1) nameIdx = 0;
-        categoryIdx = -1;
-      } else {
-        if (categoryIdx === -1 && nameIdx !== -1) {
-          categoryIdx = (nameIdx === 0 ? 1 : 0);
-        }
-        if (nameIdx === -1 && categoryIdx !== -1) {
-          nameIdx = (categoryIdx === 0 ? 1 : 0);
-        }
-        if (categoryIdx === nameIdx) {
-          for (let i = 0; i 
