@@ -1,158 +1,517 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>부품 선택기</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<style>
-  .custom-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
-  .custom-scroll::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 9999px; }
-  .custom-scroll::-webkit-scrollbar-track { background: #18181b; }
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>부품 선택 → 쉼표 데이터 생성기 (개선/저장 지원)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    .custom-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 9999px; }
+    .custom-scroll::-webkit-scrollbar-track { background: #18181b; }
+  </style>
 </head>
 <body class="min-h-screen bg-neutral-950 text-neutral-100">
-<main class="max-w-5xl mx-auto py-10 px-4">
-
-<section class="grid grid-cols-1 gap-3 mb-4">
-  <div class="flex items-center gap-2">
-    <label class="rounded-2xl px-3 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 cursor-pointer">
-      파일 업로드
-      <input id="file-input" type="file" accept=".csv,.xlsx,.xls" class="hidden" />
-    </label>
-  </div>
-  <div id="category-bar" class="flex items-center gap-2 overflow-x-auto custom-scroll"></div>
-</section>
-
-<section class="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-  <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg">
-    <div class="flex items-center justify-between mb-3">
-      <h2 class="text-lg font-semibold">부품 리스트 <span id="count" class="text-neutral-400"></span></h2>
-      <button id="clear-btn" class="rounded-xl px-3 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700">모두 지우기</button>
-    </div>
-    <div class="mb-3">
-      <input id="search" type="text" placeholder="부품 검색..." 
-        class="w-full rounded-2xl px-4 py-2 bg-neutral-900 border border-neutral-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-    </div>
-    <div id="list" class="max-h-[420px] overflow-auto pr-1 custom-scroll"></div>
-  </div>
-
-  <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg flex flex-col">
-    <div class="flex items-center justify-between mb-3">
-      <h2 class="text-lg font-semibold">선택된 항목</h2>
-    </div>
-    <div id="selected-chips" class="flex flex-wrap gap-2 mb-4 min-h-[42px]"></div>
-    <div>
-      <textarea id="output" readonly class="w-full h-32 mt-1 rounded-xl px-3 py-2 bg-black/60 border border-neutral-800 font-mono text-sm focus:outline-none"></textarea>
-      <div class="flex items-center gap-2 mt-2">
-        <button id="copy-btn" class="rounded-2xl px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">복사</button>
+  <main class="max-w-5xl mx-auto py-10 px-4">
+    <section class="grid grid-cols-1 gap-3 mb-4">
+      <div class="flex items-center gap-3 flex-wrap">
+        <label class="rounded-2xl px-3 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 cursor-pointer">
+          파일 업로드
+          <input id="file-input" type="file" accept=".xlsx,.xls" class="hidden" />
+        </label>
+        <button id="reset-btn" class="rounded-2xl px-3 py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700">
+          데이터 초기화
+        </button>
+        <span id="file-info" class="text-xs text-neutral-400">
+          엑셀(.xlsx, .xls) 파일을 업로드하세요.
+        </span>
       </div>
-    </div>
-  </div>
+      <div id="category-bar" class="flex items-center gap-2 overflow-x-auto custom-scroll"></div>
+    </section>
 
-</section>
-</main>
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <!-- 리스트 -->
+      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-lg font-semibold">부품 리스트 <span id="count" class="text-neutral-400"></span></h2>
+          <button id="clear-btn" class="rounded-xl px-3 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700">
+            모두 지우기
+          </button>
+        </div>
+        <div class="mb-3">
+          <input id="search" type="text" placeholder="부품 검색... (띄어쓰기 무시 검색)"
+                 class="w-full rounded-2xl px-4 py-2 bg-neutral-900 border border-neutral-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+        <div id="list" class="max-h-[420px] overflow-auto pr-1 custom-scroll"></div>
+      </div>
 
-<script>
-const $ = (sel) => document.querySelector(sel);
-const normKR = (s) => (s||"").normalize("NFKD").toLowerCase().replace(/\s+/g,"");
+      <!-- 선택/출력 -->
+      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg flex flex-col">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-lg font-semibold">선택된 항목</h2>
+        </div>
+        <div id="selected-chips" class="flex flex-wrap gap-2 mb-4 min-h-[42px]"></div>
+        <div>
+          <textarea id="output" readonly class="w-full h-32 mt-1 rounded-xl px-3 py-2 bg-black/60 border border-neutral-800 font-mono text-sm focus:outline-none"></textarea>
+          <div class="flex items-center gap-2 mt-2">
+            <button id="copy-btn" class="rounded-2xl px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">복사하기</button>
+          </div>
+          <p class="mt-2 text-xs text-neutral-500">
+            참고: 최종 출력은 내부 공백이 모두 제거됩니다. (예: "앞바퀴 타이어x2,후미등" → "앞바퀴타이어x2,후미등")
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
 
-const NAME_HEADERS=["name","part","partname","item","품명","이름","부품","부품명"];
-const CATEGORY_HEADERS=["category","cat","tag","tags","카테고리","분류"];
+  <script>
+    // ===== 상수 & 유틸 =====
+    const STORAGE_KEY = 'gcoo.parts-selector.v1';
+    const STORAGE_VERSION = 1;
 
-let parts=[];
-let selected={};
-let activeCategories=new Set(["전체"]);
-let query="";
+    const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명"];
+    const CATEGORY_HEADERS = ["category","cat","tag","tags","카테고리","분류"];
 
-function stripBracket(name){
-  const m=name.match(/^\s*\[[^\]]+\]\s*(.*)$/);
-  return m ? m[1].trim() : name.trim();
-}
+    const $ = (sel) => document.querySelector(sel);
+    const normKR = (s) => (s || "").normalize("NFKD").toLowerCase().replace(/\s+/g, "");
 
-function buildCategories(){
-  const set=new Set(parts.map(p=>p.category||"기타"));
-  return ["전체",...Array.from(set)];
-}
-
-function getFiltered(){
-  const qn=normKR(query);
-  return parts.filter(p=>{
-    const catOk=activeCategories.has("전체")||activeCategories.size===0||activeCategories.has(p.category);
-    const txtOk=!qn||normKR(p.name).includes(qn);
-    return catOk && txtOk;
-  });
-}
-
-function renderCategoryBar(){
-  const bar=$("#category-bar");
-  bar.innerHTML="";
-  buildCategories().forEach(cat=>{
-    const isActive=activeCategories.has("전체")?cat==="전체":activeCategories.has(cat);
-    const btn=document.createElement("button");
-    btn.textContent=cat;
-    btn.className=`rounded-full px-3 py-1 border ${isActive?"bg-indigo-600 border-indigo-500":"bg-neutral-900 border-neutral-700 hover:bg-neutral-800"}`;
-    btn.addEventListener("click",()=>{
-      if(cat==="전체") activeCategories=new Set(["전체"]);
-      else{
-        if(activeCategories.has("전체")) activeCategories.delete("전체");
-        activeCategories.has(cat)?activeCategories.delete(cat):activeCategories.add(cat);
-        if(activeCategories.size===0) activeCategories.add("전체");
+    // 단일열 구(舊) 포맷: [카테고리] 이름
+    function parseBracketed(raw) {
+      const str = String(raw ?? "").trim();
+      const m = str.match(/^\s*\[([^\]]+)\]\s*(.*)$/);
+      if (m) {
+        const category = (m[1] || "").trim() || "기타";
+        const name = (m[2] || "").trim() || category;
+        return { category, name };
       }
+      return null;
+    }
+
+    // ===== 상태 =====
+    let parts = [];                 // {id, category, name, normName}
+    let selected = {};              // id -> qty
+    let activeCategories = new Set(["전체"]);
+    let query = "";
+    let lastFileName = "";
+
+    // ===== 로컬 스토리지 =====
+    function saveState() {
+      try {
+        const payload = {
+          v: STORAGE_VERSION,
+          parts,
+          selected,
+          query,
+          activeCategories: Array.from(activeCategories),
+          meta: { fileName: lastFileName }
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      } catch (e) {
+        console.warn("상태 저장 실패:", e);
+      }
+    }
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return false;
+        const data = JSON.parse(raw);
+        if (!data || data.v !== STORAGE_VERSION) return false;
+        if (!Array.isArray(data.parts)) return false;
+
+        parts = data.parts.map(p => ({
+          id: p.id || `${p.category}|${p.name}`,
+          category: p.category || "기타",
+          name: p.name || "",
+          normName: p.normName || normKR(p.name || "")
+        }));
+        selected = data.selected || {};
+        query = data.query || "";
+        activeCategories = new Set(Array.isArray(data.activeCategories) && data.activeCategories.length ? data.activeCategories : ["전체"]);
+        lastFileName = data.meta?.fileName || "";
+        return parts.length > 0;
+      } catch (e) {
+        console.warn("상태 로드 실패:", e);
+        return false;
+      }
+    }
+
+    function updateFileInfo(text) {
+      const el = $("#file-info");
+      if (el) el.textContent = text || "";
+    }
+
+    // ===== 카테고리/필터 =====
+    function buildCategories() {
+      const set = new Set(parts.map(p => p.category || "기타"));
+      return ["전체", ...Array.from(set)];
+    }
+
+    function getFiltered() {
+      const qn = normKR(query);
+      return parts.filter(p => {
+        const catOk = activeCategories.has("전체") || activeCategories.size === 0 || activeCategories.has(p.category);
+        const txtOk = !qn || p.normName.includes(qn);
+        return catOk && txtOk;
+      });
+    }
+
+    // ===== 렌더링 =====
+    function renderCategoryBar() {
+      const bar = $("#category-bar");
+      bar.innerHTML = "";
+      const cats = buildCategories();
+      cats.forEach(cat => {
+        const isActive = activeCategories.has("전체") ? (cat === "전체") : activeCategories.has(cat);
+        const btn = document.createElement("button");
+        btn.textContent = cat;
+        btn.className = `rounded-full px-3 py-1 border ${isActive ? "bg-indigo-600 border-indigo-500" : "bg-neutral-900 border-neutral-700 hover:bg-neutral-800"}`;
+        btn.addEventListener("click", () => {
+          if (cat === "전체") {
+            activeCategories = new Set(["전체"]);
+          } else {
+            if (activeCategories.has("전체")) activeCategories.delete("전체");
+            if (activeCategories.has(cat)) activeCategories.delete(cat); else activeCategories.add(cat);
+            if (activeCategories.size === 0) activeCategories.add("전체");
+          }
+          saveState();
+          renderList();
+        });
+        bar.appendChild(btn);
+      });
+    }
+
+    function liBaseClass(checked) {
+      return `flex items-center gap-3 bg-neutral-950 border border-neutral-800 rounded-xl p-2 ${checked ? "ring-1 ring-indigo-500/40" : ""}`;
+    }
+
+    function renderList() {
+      const container = $("#list");
+      container.innerHTML = "";
+
+      if (parts.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "text-neutral-500 text-sm py-8 text-center";
+        empty.textContent = "엑셀 파일을 업로드하세요.";
+        container.appendChild(empty);
+        $("#count").textContent = "(0)";
+        renderSelectedChips();
+        renderOutput();
+        return;
+      }
+
+      const filtered = getFiltered();
+      $("#count").textContent = `(${filtered.length})`;
+
+      if (filtered.length === 0) {
+        const none = document.createElement("div");
+        none.className = "text-neutral-500 text-sm py-8 text-center";
+        none.textContent = "검색 결과가 없습니다.";
+        container.appendChild(none);
+        renderSelectedChips();
+        renderOutput();
+        return;
+      }
+
+      const ul = document.createElement("ul");
+      ul.className = "space-y-2";
+
+      filtered.forEach(p => {
+        const isChecked = selected[p.id] != null && selected[p.id] > 0;
+        const qty = isChecked ? selected[p.id] : 1;
+
+        const li = document.createElement("li");
+        li.className = liBaseClass(isChecked);
+
+        // 체크박스
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = isChecked;
+        cb.className = "h-5 w-5 accent-indigo-500";
+        cb.addEventListener("change", () => {
+          if (cb.checked) {
+            selected[p.id] = Math.max(1, Number(qty) || 1);
+          } else {
+            delete selected[p.id];
+          }
+          li.className = liBaseClass(cb.checked);
+          renderSelectedChips();
+          renderOutput();
+          saveState();
+        });
+
+        // 정보 영역
+        const infoWrap = document.createElement("div");
+        infoWrap.className = "flex-1";
+        const infoInner = document.createElement("div");
+        infoInner.className = "flex items-center gap-2";
+        const chip = document.createElement("span");
+        chip.className = "text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 whitespace-nowrap";
+        chip.textContent = `[${p.category}]`;
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "whitespace-normal break-words";
+        nameSpan.textContent = p.name;
+        infoInner.append(chip, nameSpan);
+        infoWrap.appendChild(infoInner);
+
+        // 수량
+        const qtyWrap = document.createElement("div");
+        qtyWrap.className = "flex items-center gap-2";
+        const qtyLbl = document.createElement("span");
+        qtyLbl.className = "text-sm text-neutral-400";
+        qtyLbl.textContent = "수량";
+
+        const qtyInp = document.createElement("input");
+        qtyInp.type = "number";
+        qtyInp.min = "1";
+        qtyInp.value = String(qty);
+        qtyInp.inputMode = "numeric";
+        qtyInp.pattern = "[0-9]*";
+        qtyInp.className = "w-20 rounded-xl px-3 py-1 bg-neutral-900 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500";
+
+        const setQty = (val) => {
+          const v = Math.max(1, Math.floor(Number(val) || 1));
+          qtyInp.value = String(v);
+          selected[p.id] = v;
+          if (!cb.checked) cb.checked = true;
+          li.className = liBaseClass(true);
+          renderSelectedChips();
+          renderOutput();
+          saveState();
+        };
+
+        qtyInp.addEventListener("input", () => setQty(qtyInp.value));
+
+        const minusBtn = document.createElement("button");
+        minusBtn.textContent = "-";
+        minusBtn.className = "px-2 py-1 bg-neutral-800 rounded hover:bg-neutral-700";
+        minusBtn.addEventListener("click", () => setQty(Math.max(1, Number(qtyInp.value) - 1)));
+
+        const plusBtn = document.createElement("button");
+        plusBtn.textContent = "+";
+        plusBtn.className = "px-2 py-1 bg-neutral-800 rounded hover:bg-neutral-700";
+        plusBtn.addEventListener("click", () => setQty(Number(qtyInp.value) + 1));
+
+        qtyWrap.append(qtyLbl, qtyInp, minusBtn, plusBtn);
+
+        li.append(cb, infoWrap, qtyWrap);
+        ul.appendChild(li);
+      });
+
+      container.appendChild(ul);
+      renderSelectedChips();
+      renderOutput();
+    }
+
+    function renderSelectedChips() {
+      const box = $("#selected-chips");
+      box.innerHTML = "";
+      const items = parts.filter(p => selected[p.id] && selected[p.id] > 0);
+      if (items.length === 0) {
+        const span = document.createElement("span");
+        span.className = "text-neutral-500 text-sm";
+        span.textContent = "선택된 항목이 없습니다.";
+        box.appendChild(span);
+        return;
+      }
+      items.forEach(p => {
+        const chip = document.createElement("div");
+        chip.className = "flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-full pl-3 pr-2 py-1";
+        const label = document.createElement("span");
+        label.className = "text-sm";
+        const q = selected[p.id];
+        label.textContent = q === 1 ? p.name : `${p.name}×${q}`;
+
+        const btn = document.createElement("button");
+        btn.className = "rounded-full px-2 py-1 hover:bg-neutral-800";
+        btn.title = "제거";
+        btn.textContent = "✕";
+        btn.addEventListener("click", () => {
+          delete selected[p.id];
+          saveState();
+          renderList();            // 체크박스/링 표시 동기화를 위해 리스트 갱신
+          renderSelectedChips();
+          renderOutput();
+        });
+
+        chip.append(label, btn);
+        box.appendChild(chip);
+      });
+    }
+
+    function renderOutput() {
+      const out = $("#output");
+      const items = parts
+        .filter(p => selected[p.id] && selected[p.id] > 0)
+        .map(p => {
+          const q = selected[p.id];
+          return q === 1 ? `${p.name}` : `${p.name}x${q}`;
+        });
+      // 내부 공백 완전 제거(요구사항)
+      const value = items.join(",").replace(/\s+/g, "");
+      out.value = value;
+      $("#copy-btn").disabled = out.value.length === 0;
+    }
+
+    function renderAll() {
+      renderCategoryBar();
+      renderList();
+      renderSelectedChips();
+      renderOutput();
+    }
+
+    // ===== 파일 업로드 파서 =====
+    function detectHeaderIndices(rows) {
+      const headerRow = (rows[0] || []).map(h => String(h ?? "").trim());
+      const lower = headerRow.map(h => h.toLowerCase());
+      const colCount = headerRow.length;
+
+      let categoryIdx = -1;
+      let nameIdx = -1;
+
+      for (let i = 0; i < colCount; i++) {
+        if (categoryIdx === -1 && CATEGORY_HEADERS.includes(lower[i])) categoryIdx = i;
+        if (nameIdx === -1 && NAME_HEADERS.includes(lower[i])) nameIdx = i;
+      }
+
+      const hasHeader = (categoryIdx !== -1 || nameIdx !== -1);
+
+      if (!hasHeader) {
+        if (colCount >= 2) { categoryIdx = 0; nameIdx = 1; }
+        else { categoryIdx = -1; nameIdx = 0; }
+        return { categoryIdx, nameIdx, hasHeader: false };
+      }
+
+      if (colCount === 1) {
+        if (nameIdx === -1) nameIdx = 0;
+        categoryIdx = -1;
+      } else {
+        if (categoryIdx === -1 && nameIdx !== -1) {
+          categoryIdx = (nameIdx === 0 ? 1 : 0);
+        }
+        if (nameIdx === -1 && categoryIdx !== -1) {
+          nameIdx = (categoryIdx === 0 ? 1 : 0);
+        }
+        if (categoryIdx === nameIdx) {
+          for (let i = 0; i < colCount; i++) {
+            if (i !== nameIdx) { categoryIdx = i; break; }
+          }
+        }
+      }
+      return { categoryIdx, nameIdx, hasHeader: true };
+    }
+
+    function processFile(file) {
+      const ext = (file.name.split(".").pop() || "").toLowerCase();
+      if (!["xlsx", "xls"].includes(ext)) {
+        alert("엑셀 파일만 업로드 가능합니다. (.xlsx, .xls)");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const wb = XLSX.read(new Uint8Array(reader.result), { type: "array" });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+          if (!rows || rows.length === 0) throw new Error("빈 시트");
+
+          const { categoryIdx, nameIdx, hasHeader } = detectHeaderIndices(rows);
+          const start = hasHeader ? 1 : 0;
+
+          const parsed = [];
+          for (let r = start; r < rows.length; r++) {
+            const row = rows[r] || [];
+            let cat = categoryIdx !== -1 ? String(row[categoryIdx] ?? "").trim() : "";
+            let nameCell = String(row[nameIdx] ?? "").trim();
+            if (!cat && !nameCell) continue;
+
+            // 단일열/구포맷: [카테고리] 이름
+            if (!cat) {
+              const legacy = parseBracketed(nameCell);
+              if (legacy) { cat = legacy.category; nameCell = legacy.name; }
+            }
+
+            const category = cat || "기타";
+            const name = nameCell;
+            if (!name) continue;
+
+            const id = `${category}|${name}`; // 안정적 ID (카테고리+이름)
+            parsed.push({ id, category, name, normName: normKR(name) });
+          }
+
+          if (parsed.length === 0) {
+            alert("가져올 데이터가 없습니다. (두 열: 카테고리/태그, 이름) 또는 (한 열: [카테고리] 이름) 형식을 사용하세요.");
+            return;
+          }
+
+          parts = parsed;
+          selected = {};
+          activeCategories = new Set(["전체"]);
+          query = "";
+          lastFileName = file.name;
+          $("#search").value = "";
+
+          updateFileInfo(`${file.name} 로드됨 • 총 ${parts.length}건`);
+          saveState();
+          renderAll();
+        } catch (err) {
+          console.error(err);
+          alert("파일을 읽는 중 문제가 발생했습니다. 지원 형식: .xlsx / .xls");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    // ===== 이벤트 바인딩 =====
+    $("#search").addEventListener("input", (e) => {
+      query = e.target.value || "";
+      saveState();
+      renderList(); // 카테고리 바는 그대로 두고 리스트만 갱신
+    });
+
+    $("#clear-btn").addEventListener("click", () => {
+      selected = {};
+      saveState();
+      renderList();
+      renderSelectedChips();
+      renderOutput();
+    });
+
+    $("#reset-btn").addEventListener("click", () => {
+      if (!confirm("저장된 데이터(부품 목록, 선택, 검색/필터)를 모두 삭제할까요?")) return;
+      parts = [];
+      selected = {};
+      activeCategories = new Set(["전체"]);
+      query = "";
+      lastFileName = "";
+      $("#search").value = "";
+      localStorage.removeItem(STORAGE_KEY);
+      updateFileInfo("엑셀(.xlsx, .xls) 파일을 업로드하세요.");
       renderAll();
     });
-    bar.appendChild(btn);
-  });
-}
 
-function renderList(){
-  const container=$("#list");
-  container.innerHTML="";
-  const filtered=getFiltered();
-  $("#count").textContent=`(${filtered.length})`;
-  if(filtered.length===0){ container.innerHTML='<div class="text-neutral-500 text-sm py-8 text-center">검색 결과가 없습니다.</div>'; return; }
-  const ul=document.createElement("ul"); ul.className="space-y-2";
-  filtered.forEach(p=>{
-    const isChecked=selected[p.id]!=null && selected[p.id]>0;
-    const qty=isChecked?selected[p.id]:1;
+    $("#copy-btn").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText($("#output").value);
+        alert("복사되었습니다!");
+      } catch (e) {
+        alert("복사에 실패했어요. 수동으로 복사해 주세요.");
+      }
+    });
 
-    const li=document.createElement("li");
-    li.className=`flex items-center gap-3 bg-neutral-950 border border-neutral-800 rounded-xl p-2 ${isChecked?"ring-1 ring-indigo-500/40":""}`;
+    $("#file-input").addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0]; if (!file) return;
+      processFile(file);
+      e.target.value = "";
+    });
 
-    const cb=document.createElement("input");
-    cb.type="checkbox"; cb.checked=isChecked; cb.className="h-5 w-5 accent-indigo-500";
-    cb.addEventListener("change",()=>{ if(cb.checked) selected[p.id]=Math.max(1,Number(qty)||1); else delete selected[p.id]; renderAll(); });
-
-    const infoWrap=document.createElement("div"); infoWrap.className="flex-1";
-    infoWrap.innerHTML=`<div class="flex items-center gap-2"><span class="text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 whitespace-nowrap">[${p.category}]</span><span class="whitespace-normal break-words">${stripBracket(p.name)}</span></div>`;
-
-    const qtyWrap=document.createElement("div"); qtyWrap.className="flex items-center gap-2";
-    const qtyLbl=document.createElement("span"); qtyLbl.className="text-sm text-neutral-400"; qtyLbl.textContent="수량";
-    const qtyInp=document.createElement("input");
-    qtyInp.type="number"; qtyInp.min="1"; qtyInp.value=qty; qtyInp.inputMode="numeric"; qtyInp.pattern="[0-9]*";
-    qtyInp.className="w-20 rounded-xl px-3 py-1 bg-neutral-900 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500";
-    qtyInp.addEventListener("input",()=>{ const val=Math.max(1,Math.floor(Number(qtyInp.value)||1)); qtyInp.value=val; selected[p.id]=val; });
-
-    // 수량 증가/감소 버튼
-    const plusBtn=document.createElement("button"); plusBtn.textContent="+"; plusBtn.className="px-2 py-1 bg-neutral-800 rounded hover:bg-neutral-700";
-    plusBtn.addEventListener("click",()=>{ qtyInp.value=Number(qtyInp.value)+1; qtyInp.dispatchEvent(new Event('input')); });
-    const minusBtn=document.createElement("button"); minusBtn.textContent="-"; minusBtn.className="px-2 py-1 bg-neutral-800 rounded hover:bg-neutral-700";
-    minusBtn.addEventListener("click",()=>{ qtyInp.value=Math.max(1,Number(qtyInp.value)-1); qtyInp.dispatchEvent(new Event('input')); });
-
-    qtyWrap.append(qtyLbl,qtyInp,minusBtn,plusBtn);
-    li.append(cb,infoWrap,qtyWrap); ul.appendChild(li);
-  });
-  container.appendChild(ul);
-}
-
-function renderSelectedChips(){
-  const box=$("#selected-chips"); box.innerHTML="";
-  const items=parts.filter(p=>selected[p.id]);
-  if(items.length===0){ box.innerHTML='<span class="text-neutral-500 text-sm">선택된 항목이 없습니다.</span>'; return; }
-  items.forEach(p=>{
-    const chip=document.createElement("div"); chip.className="flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-full pl-3 pr-2 py-1";
-    const span=document.createElement("span"); span.className="text-sm";
-    const q=selected[p.id]; span.textContent=q===1?stripBracket(p.name):`${stripBracket(p.name)}×${q}`;
-    const btn=document.createElement("button"); btn.className="rounded-full px-2 py-1 hover:bg-neutral-800"; btn.title="제거"
+    // 초기 로드
+    const restored = loadState();
+    if (restored) {
+      updateFileInfo(`${lastFileName ? `${lastFileName} (저장된 데이터)` : "저장된 데이터"} • 총 ${parts.length}건`);
+    }
+    renderAll();
+  </script>
+</body>
+</html>
