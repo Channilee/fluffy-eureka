@@ -167,8 +167,24 @@
       return Array.from(new Set(arr));
     }
 
+    // ===== 태그 그룹화(추가) =====
+    // PL.S, PL -> 킥보드 / B2 -> 자전거 / 공용 -> 공용
+    const TAG_GROUP_ALIASES = {
+      'pls': '킥보드',  // PL.S -> remove dot -> pls
+      'pl':  '킥보드',
+      'b2':  '자전거',
+      '공용': '공용'
+    };
+    function toTagKey(t) {
+      return String(t || '').trim().toLowerCase().replace(/\./g, '');
+    }
+    function mapTagToGroup(tag) {
+      const key = toTagKey(tag);
+      return TAG_GROUP_ALIASES[key] || tag;
+    }
+
     // ===== 상태 =====
-    // parts: { id, tags: string[], name, normName }
+    // parts: { id, tags: string[], groupTags: string[], name, normName }
     let parts = [];
     let selected = {};            // id -> qty
     let activeCategory = null;    // 단일 선택; null이면 전체 보기
@@ -198,12 +214,17 @@
         const data = JSON.parse(raw);
         if (!data || data.v !== 3 || !Array.isArray(data.parts)) return false;
 
-        parts = data.parts.map(p => ({
-          id: p.id || `${(p.name||"")}||${(Array.isArray(p.tags)?p.tags:["기타"]).slice().sort().join('/')}`,
-          tags: Array.isArray(p.tags) ? p.tags : ["기타"],
-          name: stripBracketPrefix(p.name || ""),
-          normName: p.normName || normKR(p.name || "")
-        }));
+        parts = data.parts.map(p => {
+          const tags = Array.isArray(p.tags) ? p.tags : ["기타"];
+          const groupTags = Array.isArray(p.groupTags) && p.groupTags.length ? p.groupTags : tags.map(mapTagToGroup);
+          return {
+            id: p.id || `${(p.name||"")}||${tags.slice().sort().join('/')}`,
+            tags,
+            groupTags,
+            name: stripBracketPrefix(p.name || ""),
+            normName: p.normName || normKR(p.name || "")
+          };
+        });
         selected = data.selected || {};
         query = data.query || "";
         activeCategory = data.activeCategory || null;
@@ -222,19 +243,23 @@
       if (el) el.textContent = text || "";
     }
 
-    // ===== 태그/필터 =====
+    // ===== 태그/필터(그룹 기준으로 변경) =====
     function buildCategories() {
       const set = new Set();
-      parts.forEach(p => p.tags.forEach(t => set.add(t)));
+      parts.forEach(p => {
+        const gs = Array.isArray(p.groupTags) ? p.groupTags : (Array.isArray(p.tags) ? p.tags.map(mapTagToGroup) : []);
+        gs.forEach(g => set.add(g));
+      });
       return Array.from(set);
     }
 
     function getFiltered() {
       const qn = normKR(query);
       return parts.filter(p => {
-        const tagOk = !activeCategory || p.tags.includes(activeCategory) || p.tags.includes(COMMON_TAG);
+        const gs = Array.isArray(p.groupTags) ? p.groupTags : (Array.isArray(p.tags) ? p.tags.map(mapTagToGroup) : []);
+        const catOk = !activeCategory || gs.includes(activeCategory) || gs.includes(COMMON_TAG); // 공용은 항상 포함
         const txtOk = !qn || p.normName.includes(qn);
-        return tagOk && txtOk;
+        return catOk && txtOk;
       });
     }
 
@@ -341,7 +366,7 @@
         const infoInner = document.createElement("div");
         infoInner.className = "flex items-center gap-2 flex-wrap";
 
-        // 태그 칩들
+        // 태그 칩들(원본 태그 그대로)
         p.tags.forEach(t => {
           const tagChip = document.createElement("span");
           tagChip.className = "text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 whitespace-nowrap";
@@ -515,7 +540,9 @@
         const name = stripBracketPrefix(nameRaw);
         if (!name) { skipped++; continue; }
         const id = `${name}||${tags.slice().sort().join('/')}`;
-        parsed.push({ id, tags, name, normName: normKR(name) });
+        // 그룹 태그 생성
+        const groupTags = tags.map(mapTagToGroup);
+        parsed.push({ id, tags, groupTags, name, normName: normKR(name) });
       }
       return { parsed, skipped };
     }
@@ -667,7 +694,6 @@
             selected = {};
             activeCategory = null;
             query = "";
-            $("#search").value = "";
             if (mapping) mapState = { tagIdx: mapping.tagIdx, nameIdx: mapping.nameIdx, hasHeader: mapping.hasHeader };
             saveState();
             renderAll();
