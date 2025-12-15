@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>부품 선택 → 쉼표 데이터 생성기 (매핑 지원/안정화)</title>
+  <title>부품 선택 → 쉼표 데이터 생성기 (일련번호/그룹태그/안정화)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- XLSX 메인 CDN -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -14,10 +14,15 @@
     .dropzone { border: 2px dashed #3f3f46; border-radius: 16px; }
     .dropzone.dragover { background: rgba(99,102,241,0.08); border-color: #6366f1; }
     .panel { border: 1px solid #262626; border-radius: 16px; background: #0b0b0c; }
+    .btn { border-radius: 12px; padding: 8px 12px; }
+    .seg { border-radius: 9999px; overflow: hidden; border: 1px solid #3f3f46; }
+    .seg > button { padding: 6px 12px; }
+    .seg .active { background: #6366f1; }
   </style>
 </head>
 <body class="min-h-screen bg-neutral-950 text-neutral-100">
   <main class="max-w-5xl mx-auto py-10 px-4">
+    <!-- 업로드/초기화 -->
     <section class="grid grid-cols-1 gap-3 mb-4">
       <div class="flex items-center gap-3 flex-wrap">
         <label class="rounded-2xl px-3 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 cursor-pointer select-none">
@@ -30,12 +35,37 @@
         <span id="file-info" class="text-xs text-neutral-400">엑셀(.xlsx, .xls) 파일을 업로드하세요.</span>
       </div>
 
-      <!-- 드래그&드롭 영역 -->
+      <!-- 드래그&드롭 -->
       <div id="dropzone" class="dropzone px-4 py-6 text-sm text-neutral-400">
         파일을 이 영역으로 드래그&드롭하거나, 상단의 파일 업로드 버튼을 사용하세요.
       </div>
 
-      <!-- 매핑 패널 -->
+      <!-- 일련번호(기기) 관리 -->
+      <div class="panel p-4">
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+          <h3 class="font-semibold">기기(일련번호) 관리</h3>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-neutral-400">활성 기기: </span>
+            <span id="active-device-label" class="text-xs text-indigo-300">없음</span>
+          </div>
+        </div>
+        <div class="mt-3 flex items-center gap-2 flex-wrap">
+          <input id="device-input" type="text" class="rounded-xl px-3 py-2 bg-neutral-900 border border-neutral-700 w-64"
+                 placeholder="일련번호(예: 609024, 628564)" />
+          <button id="device-add-btn" class="btn bg-neutral-800 hover:bg-neutral-700 border border-neutral-700">추가</button>
+          <span class="text-xs text-neutral-500">쉼표/공백으로 여러 개 입력 가능. 끝의 마침표/쉼표는 자동 제거됩니다.</span>
+        </div>
+        <div id="device-chips" class="flex flex-wrap gap-2 mt-2"></div>
+        <div class="mt-3 flex items-center gap-3">
+          <span class="text-sm text-neutral-300">부품 사용 상태</span>
+          <div class="seg inline-flex">
+            <button id="usage-used" class="text-sm">부품 사용</button>
+            <button id="usage-unused" class="text-sm">부품 미사용</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 매핑 패널(수동 지정) -->
       <div id="mapping-panel" class="panel p-4 hidden">
         <div class="flex items-center justify-between">
           <h3 class="font-semibold">열 매핑 설정</h3>
@@ -72,13 +102,13 @@
     </section>
 
     <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <!-- 리스트 -->
+      <!-- 좌: 리스트 -->
       <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg">
         <div class="flex items-center justify-between mb-3">
           <h2 class="text-lg font-semibold">
             부품 리스트 <span id="count" class="text-neutral-400"></span>
           </h2>
-          <button id="clear-btn" class="rounded-xl px-3 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700">
+          <button id="clear-btn" class="btn bg-neutral-800 hover:bg-neutral-700 border border-neutral-700">
             모두 지우기
           </button>
         </div>
@@ -89,19 +119,20 @@
         <div id="list" class="max-h-[420px] overflow-auto pr-1 custom-scroll"></div>
       </div>
 
-      <!-- 선택/출력 -->
+      <!-- 우: 선택/출력(메모 대체) -->
       <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg flex flex-col">
         <div class="flex items-center justify-between mb-3">
-          <h2 class="text-lg font-semibold">선택된 항목</h2>
+          <h2 class="text-lg font-semibold">선택된 항목(현재 기기 메모)</h2>
+          <span id="active-device-mini" class="text-xs text-neutral-400"></span>
         </div>
         <div id="selected-chips" class="flex flex-wrap gap-2 mb-4 min-h-[42px]"></div>
         <div>
           <textarea id="output" readonly class="w-full h-32 mt-1 rounded-xl px-3 py-2 bg-black/60 border border-neutral-800 font-mono text-sm focus:outline-none"></textarea>
           <div class="flex items-center gap-2 mt-2">
-            <button id="copy-btn" class="rounded-2xl px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">복사하기</button>
+            <button id="copy-btn" class="btn bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">복사하기</button>
           </div>
           <p class="mt-2 text-xs text-neutral-500">
-            참고: 최종 출력은 내부 공백이 모두 제거됩니다. 예) "앞바퀴 타이어x2,후미등" → "앞바퀴타이어x2,후미등"
+            참고: 최종 출력은 내부 공백이 모두 제거됩니다. “부품 미사용” 선택 시 메모에는 “부품미사용”이 표시됩니다.
           </p>
         </div>
       </div>
@@ -127,27 +158,26 @@
     const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명","품목","제품명"];
     const TAG_HEADERS  = ["category","cat","tag","tags","카테고리","분류","태그"];
 
+    // 태그 그룹화: PL.S/PL -> 킥보드 / B2 -> 자전거 / 공용 -> 공용
+    const TAG_GROUP_ALIASES = { 'pls': '킥보드', 'pl': '킥보드', 'b2': '자전거', '공용': '공용' };
     const $ = (sel) => document.querySelector(sel);
     const normKR = (s) => (s || "").normalize("NFKD").toLowerCase().replace(/\s+/g, "");
+    const toTagKey = (t) => String(t || '').trim().toLowerCase().replace(/\./g, '');
+    const mapTagToGroup = (tag) => TAG_GROUP_ALIASES[toTagKey(tag)] || tag;
     const setStatus = (msg, isError=false) => {
       const el = $("#status");
       el.textContent = msg || "";
       el.className = "text-xs " + (isError ? "text-red-400" : "text-neutral-400");
     };
-    const colLetter = (i) => {
-      let s = ""; i = Number(i);
-      while (i >= 0) { s = String.fromCharCode((i % 26) + 65) + s; i = Math.floor(i / 26) - 1; }
-      return s;
-    };
+    const colLetter = (i) => { let s = ""; i = Number(i); while (i >= 0) { s = String.fromCharCode((i % 26) + 65) + s; i = Math.floor(i / 26) - 1; } return s; };
 
-    // 이름 열에 [태그] 접두가 섞여있으면 제거
+    // [태그] 접두 제거
     function stripBracketPrefix(raw) {
       const str = String(raw ?? "").trim();
       const m = str.match(/^\s*\[[^\]]+\]\s*(.*)$/);
       return m ? (m[1] || "").trim() : str;
     }
-
-    // 단일열 구형 포맷: [카테고리] 이름
+    // 단일열 구포맷
     function parseBracketed(raw) {
       const str = String(raw ?? "").trim();
       const m = str.match(/^\s*\[([^\]]+)\]\s*(.*)$/);
@@ -158,8 +188,7 @@
       }
       return null;
     }
-
-    // "과자/건강식" → ["과자","건강식"]
+    // 태그 슬래시 분리
     function splitTags(catString) {
       const raw = String(catString ?? "").trim();
       if (!raw) return ["기타"];
@@ -167,41 +196,27 @@
       return Array.from(new Set(arr));
     }
 
-    // ===== 태그 그룹화(추가) =====
-    // PL.S, PL -> 킥보드 / B2 -> 자전거 / 공용 -> 공용
-    const TAG_GROUP_ALIASES = {
-      'pls': '킥보드',  // PL.S -> remove dot -> pls
-      'pl':  '킥보드',
-      'b2':  '자전거',
-      '공용': '공용'
-    };
-    function toTagKey(t) {
-      return String(t || '').trim().toLowerCase().replace(/\./g, '');
-    }
-    function mapTagToGroup(tag) {
-      const key = toTagKey(tag);
-      return TAG_GROUP_ALIASES[key] || tag;
-    }
-
     // ===== 상태 =====
     // parts: { id, tags: string[], groupTags: string[], name, normName }
     let parts = [];
-    let selected = {};            // id -> qty
-    let activeCategory = null;    // 단일 선택; null이면 전체 보기
+    let selected = {};          // 현재 활성 기기의 선택(없으면 전역 선택처럼 동작)
+    let activeCategory = null;  // 그룹 태그 기준(킥보드/자전거/공용)
     let query = "";
     let lastFileName = "";
     let lastSheetName = "";
 
-    // 업로드된 시트 raw rows(매핑 UI용)
-    let rawRows = [];
-    let mapState = { tagIdx: 0, nameIdx: 1, hasHeader: true };
+    // 일련번호(기기) 상태: [{ id, selected: {}, used: boolean }]
+    let devices = [];
+    let activeDeviceId = null;
 
     // ===== 로컬 스토리지 =====
     function saveState() {
       try {
         const payload = {
-          v: 3, parts, selected, activeCategory, query,
-          meta: { fileName: lastFileName, sheetName: lastSheetName, mapping: mapState }
+          v: 3,
+          parts, selected, activeCategory, query,
+          meta: { fileName: lastFileName, sheetName: lastSheetName, mapping: mapState },
+          devices, activeDeviceId
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
       } catch (e) { console.warn("상태 저장 실패:", e); }
@@ -212,7 +227,7 @@
         const raw = localStorage.getItem(STORAGE_KEY);
         if (!raw) return false;
         const data = JSON.parse(raw);
-        if (!data || data.v !== 3 || !Array.isArray(data.parts)) return false;
+        if (!data || !Array.isArray(data.parts)) return false;
 
         parts = data.parts.map(p => {
           const tags = Array.isArray(p.tags) ? p.tags : ["기타"];
@@ -231,7 +246,20 @@
         lastFileName = data.meta?.fileName || "";
         lastSheetName = data.meta?.sheetName || "";
         mapState = data.meta?.mapping || mapState;
-        return parts.length > 0;
+
+        devices = Array.isArray(data.devices) ? data.devices.map(d => ({
+          id: d.id,
+          selected: d.selected || {},
+          used: typeof d.used === 'boolean' ? d.used : true
+        })) : [];
+        activeDeviceId = data.activeDeviceId || null;
+
+        // 활성 기기가 있으면 그 선택을 현재 selected로 로드
+        if (activeDeviceId) {
+          const dev = devices.find(x => x.id === activeDeviceId);
+          if (dev) selected = { ...dev.selected };
+        }
+        return true;
       } catch (e) {
         console.warn("상태 로드 실패:", e);
         return false;
@@ -243,7 +271,7 @@
       if (el) el.textContent = text || "";
     }
 
-    // ===== 태그/필터(그룹 기준으로 변경) =====
+    // ===== 태그/필터(그룹 기준) =====
     function buildCategories() {
       const set = new Set();
       parts.forEach(p => {
@@ -257,13 +285,123 @@
       const qn = normKR(query);
       return parts.filter(p => {
         const gs = Array.isArray(p.groupTags) ? p.groupTags : (Array.isArray(p.tags) ? p.tags.map(mapTagToGroup) : []);
-        const catOk = !activeCategory || gs.includes(activeCategory) || gs.includes(COMMON_TAG); // 공용은 항상 포함
+        const catOk = !activeCategory || gs.includes(activeCategory) || gs.includes(COMMON_TAG);
         const txtOk = !qn || p.normName.includes(qn);
         return catOk && txtOk;
       });
     }
 
-    // ===== 렌더링 =====
+    // ===== 기기(일련번호) 관리 =====
+    function sanitizeDeviceId(raw) {
+      const s = String(raw || '').trim();
+      return s.replace(/[.,;]+$/g, ''); // 끝의 마침표/쉼표 제거
+    }
+    function ensureDevice(id) {
+      id = sanitizeDeviceId(id);
+      if (!id) return null;
+      let d = devices.find(x => x.id === id);
+      if (!d) {
+        d = { id, selected: {}, used: true };
+        devices.push(d);
+      }
+      return d;
+    }
+    function switchActiveDevice(id) {
+      // 기존 활성 기기 선택 저장
+      if (activeDeviceId) {
+        const prev = devices.find(x => x.id === activeDeviceId);
+        if (prev) prev.selected = { ...selected };
+      }
+      // 새 활성 기기 설정
+      activeDeviceId = id;
+      const cur = devices.find(x => x.id === activeDeviceId);
+      selected = cur ? { ...cur.selected } : {};
+      saveState();
+      renderDevices();
+      renderList();
+      renderSelectedChips();
+      renderOutput();
+    }
+    function removeDevice(id) {
+      const idx = devices.findIndex(x => x.id === id);
+      if (idx >= 0) devices.splice(idx, 1);
+      if (activeDeviceId === id) {
+        activeDeviceId = null;
+        selected = {};
+      }
+      saveState();
+      renderDevices();
+      renderList();
+      renderSelectedChips();
+      renderOutput();
+    }
+    function syncSelectedToActiveDevice() {
+      if (!activeDeviceId) return;
+      const cur = devices.find(x => x.id === activeDeviceId);
+      if (!cur) return;
+      cur.selected = { ...selected };
+      saveState();
+      renderDevices(); // 카운트 갱신
+    }
+
+    function renderDevices() {
+      const chips = $("#device-chips");
+      chips.innerHTML = "";
+      const label = $("#active-device-label");
+      const mini = $("#active-device-mini");
+      label.textContent = activeDeviceId || "없음";
+      mini.textContent = activeDeviceId ? `기기: ${activeDeviceId}` : "";
+
+      if (!devices.length) {
+        const span = document.createElement("span");
+        span.className = "text-neutral-500 text-sm";
+        span.textContent = "일련번호를 추가하세요.";
+        chips.appendChild(span);
+      } else {
+        // 정렬: 숫자 우선
+        const sorted = [...devices].sort((a,b)=>{
+          const na = Number(a.id), nb = Number(b.id);
+          if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+          return String(a.id).localeCompare(String(b.id), 'ko');
+        });
+        sorted.forEach(d=>{
+          const count = Object.values(d.selected || {}).reduce((s,v)=> s + (Number(v)||0), 0);
+          const isActive = activeDeviceId === d.id;
+          const wrap = document.createElement("div");
+          wrap.className = `flex items-center gap-1 rounded-full px-2 py-1 border ${isActive ? "bg-indigo-600 border-indigo-500" : "bg-neutral-900 border-neutral-700"}`;
+
+          const btn = document.createElement("button");
+          btn.className = "px-2";
+          btn.textContent = count ? `${d.id}(${count})` : d.id;
+          btn.title = d.used ? "부품 사용" : "부품 미사용";
+          btn.addEventListener("click", ()=> switchActiveDevice(d.id));
+
+          const del = document.createElement("button");
+          del.className = "rounded-full px-2 hover:bg-neutral-800";
+          del.textContent = "✕";
+          del.title = "삭제";
+          del.addEventListener("click", ()=> removeDevice(d.id));
+
+          wrap.append(btn, del);
+          chips.appendChild(wrap);
+        });
+      }
+
+      // 사용/미사용 토글 상태 반영
+      const usedBtn = $("#usage-used");
+      const unusedBtn = $("#usage-unused");
+      usedBtn.classList.remove("active");
+      unusedBtn.classList.remove("active");
+      usedBtn.disabled = !activeDeviceId;
+      unusedBtn.disabled = !activeDeviceId;
+      if (activeDeviceId) {
+        const cur = devices.find(x => x.id === activeDeviceId);
+        if (cur && cur.used) usedBtn.classList.add("active");
+        else unusedBtn.classList.add("active");
+      }
+    }
+
+    // ===== 렌더링(리스트/선택/출력) =====
     function renderCategoryBar() {
       const bar = $("#category-bar");
       bar.innerHTML = "";
@@ -276,7 +414,7 @@
         btn.textContent = cat;
         btn.className = `rounded-full px-3 py-1 border select-none ${isActive ? "bg-indigo-600 border-indigo-500" : "bg-neutral-900 border-neutral-700 hover:bg-neutral-800"}`;
         btn.addEventListener("click", () => {
-          activeCategory = (activeCategory === cat) ? null : cat; // 같은 태그 클릭하면 해제(전체 보기)
+          activeCategory = (activeCategory === cat) ? null : cat; // 해제 시 전체
           saveState();
           renderCategoryBar();
           renderList();
@@ -301,7 +439,7 @@
       }
       renderSelectedChips();
       renderOutput();
-      saveState();
+      syncSelectedToActiveDevice();
     }
 
     function renderList() {
@@ -342,31 +480,28 @@
         const li = document.createElement("li");
         li.className = liBaseClass(isChecked);
 
-        // 체크박스(크게)
+        // 체크박스
         const cb = document.createElement("input");
         cb.type = "checkbox";
         cb.checked = isChecked;
         cb.className = "h-8 w-8 accent-indigo-500";
         cb.setAttribute("aria-label", "선택");
         cb.addEventListener("change", () => {
-          if (cb.checked) {
-            selected[p.id] = Math.max(1, Number(qty) || 1);
-          } else {
-            delete selected[p.id];
-          }
+          if (cb.checked) selected[p.id] = Math.max(1, Number(qty) || 1);
+          else delete selected[p.id];
           li.className = liBaseClass(cb.checked);
           renderSelectedChips();
           renderOutput();
-          saveState();
+          syncSelectedToActiveDevice();
         });
 
-        // 정보 영역(전체 클릭 토글)
+        // 정보(전체 클릭 토글)
         const infoWrap = document.createElement("div");
         infoWrap.className = "flex-1 cursor-pointer select-none";
         const infoInner = document.createElement("div");
         infoInner.className = "flex items-center gap-2 flex-wrap";
 
-        // 태그 칩들(원본 태그 그대로)
+        // 원본 태그 칩
         p.tags.forEach(t => {
           const tagChip = document.createElement("span");
           tagChip.className = "text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 whitespace-nowrap";
@@ -380,12 +515,10 @@
         nameSpan.textContent = p.name;
         infoInner.appendChild(nameSpan);
 
-        infoWrap.addEventListener("click", () => {
-          toggleSelectionById(p.id, li, cb);
-        });
+        infoWrap.addEventListener("click", () => { toggleSelectionById(p.id, li, cb); });
         infoWrap.appendChild(infoInner);
 
-        // 수량 (+ / − 순서)
+        // 수량 (+ / −)
         const qtyWrap = document.createElement("div");
         qtyWrap.className = "flex items-center gap-2";
         const qtyLbl = document.createElement("span");
@@ -393,24 +526,19 @@
         qtyLbl.textContent = "수량";
 
         const qtyInp = document.createElement("input");
-        qtyInp.type = "number";
-        qtyInp.min = "1";
-        qtyInp.value = String(qty);
-        qtyInp.inputMode = "numeric";
-        qtyInp.pattern = "[0-9]*";
+        qtyInp.type = "number"; qtyInp.min = "1"; qtyInp.value = String(qty);
+        qtyInp.inputMode = "numeric"; qtyInp.pattern = "[0-9]*";
         qtyInp.className = "w-20 rounded-xl px-3 py-1 bg-neutral-900 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500";
-
         const setQty = (val) => {
           const v = Math.max(1, Math.floor(Number(val) || 1));
           qtyInp.value = String(v);
-          selected[p.id] = v; // 입력 시 자동 선택
+          selected[p.id] = v;
           if (!cb.checked) cb.checked = true;
           li.className = liBaseClass(true);
           renderSelectedChips();
           renderOutput();
-          saveState();
+          syncSelectedToActiveDevice();
         };
-
         qtyInp.addEventListener("input", () => setQty(qtyInp.value));
 
         const plusBtn = document.createElement("button");
@@ -460,10 +588,10 @@
         btn.textContent = "✕";
         btn.addEventListener("click", () => {
           delete selected[p.id];
-          saveState();
-          renderList();            // 체크박스/링 표시 동기화
+          renderList();
           renderSelectedChips();
           renderOutput();
+          syncSelectedToActiveDevice();
         });
         chip.append(label, btn);
         box.appendChild(chip);
@@ -472,6 +600,18 @@
 
     function renderOutput() {
       const out = $("#output");
+      const usedState = (function(){
+        if (!activeDeviceId) return true;
+        const cur = devices.find(x => x.id === activeDeviceId);
+        return cur ? cur.used : true;
+      })();
+
+      if (!usedState) {
+        out.value = "부품미사용";
+        $("#copy-btn").disabled = false;
+        return;
+      }
+
       const items = parts
         .filter(p => selected[p.id] && selected[p.id] > 0)
         .map(p => {
@@ -483,6 +623,7 @@
     }
 
     function renderAll() {
+      renderDevices();
       renderCategoryBar();
       renderList();
       renderSelectedChips();
@@ -500,7 +641,7 @@
       return { ws: null, rows: [], sheetName: "" };
     }
 
-    // 자동 매핑 제안(원본 유지)
+    // 자동 매핑 제안
     function suggestMapping(rows) {
       const header = (rows[0] || []).map(v => String(v ?? "").trim());
       const lower = header.map(v => v.toLowerCase());
@@ -540,36 +681,27 @@
         const name = stripBracketPrefix(nameRaw);
         if (!name) { skipped++; continue; }
         const id = `${name}||${tags.slice().sort().join('/')}`;
-        // 그룹 태그 생성
         const groupTags = tags.map(mapTagToGroup);
         parsed.push({ id, tags, groupTags, name, normName: normKR(name) });
       }
       return { parsed, skipped };
     }
 
-    // 업로드 안정화: 다단계 폴백 파서(완성)
     function bestEffortParse(rows) {
       const sugg = suggestMapping(rows);
       const colMax = Math.max(...rows.slice(0, 200).map(r => Array.isArray(r) ? r.length : 0), 0);
       const attempts = [];
-
-      // 1) 제안값
       attempts.push({ tagIdx: sugg.tagIdx, nameIdx: sugg.nameIdx, hasHeader: sugg.hasHeader, label: "suggest" });
-
-      // 2) 대표 시나리오 폴백
       if (colMax >= 2) {
         attempts.push({ tagIdx: 0, nameIdx: 1, hasHeader: true,  label: "A=tag,B=name,header=Y" });
         attempts.push({ tagIdx: 0, nameIdx: 1, hasHeader: false, label: "A=tag,B=name,header=N" });
         attempts.push({ tagIdx: 1, nameIdx: 0, hasHeader: true,  label: "B=tag,A=name,header=Y" });
         attempts.push({ tagIdx: 1, nameIdx: 0, hasHeader: false, label: "B=tag,A=name,header=N" });
       }
-
-      // 3) 단일열(태그 없음)
       if (colMax <= 1) {
         attempts.push({ tagIdx: -1, nameIdx: 0, hasHeader: true,  label: "singlecol name=A,header=Y" });
         attempts.push({ tagIdx: -1, nameIdx: 0, hasHeader: false, label: "singlecol name=A,header=N" });
       }
-
       for (const a of attempts) {
         const { parsed, skipped } = parseRows(rows, a.tagIdx, a.nameIdx, a.hasHeader);
         if (parsed.length > 0) {
@@ -579,7 +711,6 @@
       return { parsed: [], skipped: 0, mapping: null };
     }
 
-    // ===== 매핑 UI =====
     function showMappingPanel(rows, suggestion) {
       const panel = $("#mapping-panel");
       const tagSel = $("#map-tag-col");
@@ -588,7 +719,6 @@
       const preview = $("#map-preview");
       const hint = $("#mapping-hint");
 
-      // 옵션 구성(+ 태그 없음 옵션 추가)
       const colMax = Math.max((rows[0] || []).length, ...rows.slice(0, 200).map(r => Array.isArray(r) ? r.length : 0));
       tagSel.innerHTML = ""; nameSel.innerHTML = "";
 
@@ -604,7 +734,6 @@
         opt2.value = String(i); opt2.textContent = label; nameSel.appendChild(opt2);
       }
 
-      // 제안값 세팅
       tagSel.value = String(suggestion.tagIdx >= -1 ? suggestion.tagIdx : -1);
       nameSel.value = String(suggestion.nameIdx >= 0 ? suggestion.nameIdx : Math.min(1, colMax-1));
       headerCb.checked = !!suggestion.hasHeader;
@@ -630,30 +759,16 @@
         mapState = { tagIdx: tIdx, nameIdx: nIdx, hasHeader: hasH };
       };
       updatePreview();
-      tagSel.onchange = updatePreview;
-      nameSel.onchange = updatePreview;
-      headerCb.onchange = updatePreview;
 
       $("#map-apply").onclick = () => {
-        const { parsed, skipped } = parseRows(rows, mapState.tagIdx, mapState.nameIdx, mapState.hasHeader);
-        if (parsed.length === 0) {
-          alert("파싱 결과가 0건입니다. 열 선택과 헤더 여부를 다시 확인해주세요.");
-          return;
-        }
-        parts = parsed;
-        selected = {};
-        activeCategory = null;
-        query = "";
-        $("#search").value = "";
-        saveState();
-        renderAll();
-        setStatus(`매핑 적용: 태그=${mapState.tagIdx>=0?colLetter(mapState.tagIdx):'없음'}, 부품명=${colLetter(mapState.nameIdx)}, 헤더=${mapState.hasHeader ? "예" : "아니오"} | 파싱 ${parts.length}건, 스킵 ${skipped}건`, false);
+        const { parsed, skipped } = parseRows(rows, Number(tagSel.value), Number(nameSel.value), headerCb.checked);
+        if (parsed.length === 0) { alert("파싱 결과가 0건입니다. 열 선택과 헤더 여부를 다시 확인해주세요."); return; }
+        parts = parsed; selected = {}; activeCategory = null; query = ""; $("#search").value = "";
+        saveState(); renderAll();
+        setStatus(`매핑 적용: 태그=${Number(tagSel.value)>=0?colLetter(Number(tagSel.value)):'없음'}, 부품명=${colLetter(Number(nameSel.value))}, 헤더=${headerCb.checked ? "예" : "아니오"} | 파싱 ${parts.length}건, 스킵 ${skipped}건`, false);
         panel.classList.add("hidden");
       };
-      $("#map-cancel").onclick = () => {
-        panel.classList.add("hidden");
-      };
-
+      $("#map-cancel").onclick = () => { panel.classList.add("hidden"); };
       panel.classList.remove("hidden");
     }
 
@@ -683,7 +798,6 @@
           rawRows = chosen.rows;
           lastSheetName = chosen.sheetName;
 
-          // 1) 최선 시도(다단계 폴백 포함)
           const { parsed, skipped, mapping } = bestEffortParse(rawRows);
 
           lastFileName = file.name;
@@ -692,15 +806,17 @@
           if (parsed.length > 0) {
             parts = parsed;
             selected = {};
+            // 활성 기기 선택이 있으면 그쪽 선택은 그대로 남고, 화면은 초기화
             activeCategory = null;
             query = "";
+            $("#search").value = "";
+
             if (mapping) mapState = { tagIdx: mapping.tagIdx, nameIdx: mapping.nameIdx, hasHeader: mapping.hasHeader };
             saveState();
             renderAll();
             setStatus(`자동 매핑 성공: 태그=${mapState.tagIdx>=0?colLetter(mapState.tagIdx):'없음'}, 부품명=${colLetter(mapState.nameIdx)}, 헤더=${mapState.hasHeader ? "예" : "아니오"} | 파싱=${parts.length}건, 스킵=${skipped}건`, false);
             $("#mapping-panel").classList.add("hidden");
           } else {
-            // 2) 그래도 실패하면 수동 매핑
             setStatus("자동 매핑을 수행하지 못했습니다. 상단의 '열 매핑 설정'에서 열을 선택해 주세요.", true);
             const sug = suggestMapping(rawRows);
             showMappingPanel(rawRows, sug);
@@ -718,23 +834,29 @@
       reader.readAsArrayBuffer(file);
     }
 
-    // ===== 드래그&드롭 =====
-    const dz = $("#dropzone");
-    ["dragenter", "dragover", "dragleave", "drop"].forEach(evt =>
-      dz.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); })
-    );
-    ["dragenter", "dragover"].forEach(evt =>
-      dz.addEventListener(evt, () => dz.classList.add("dragover"))
-    );
-    ["dragleave", "drop"].forEach(evt =>
-      dz.addEventListener(evt, () => dz.classList.remove("dragover"))
-    );
-    dz.addEventListener("drop", (e) => {
-      const file = e.dataTransfer.files && e.dataTransfer.files[0];
-      if (file) processFile(file);
+    // ===== 이벤트 =====
+    $("#device-add-btn").addEventListener("click", ()=>{
+      const raw = $("#device-input").value || "";
+      const tokens = raw.split(/[\s,]+/).map(s=>sanitizeDeviceId(s)).filter(Boolean);
+      tokens.forEach(t => ensureDevice(t));
+      if (tokens.length) switchActiveDevice(tokens[tokens.length - 1]);
+      $("#device-input").value = "";
+    });
+    $("#device-input").addEventListener("keydown", (e)=>{
+      if (e.key === "Enter") { e.preventDefault(); $("#device-add-btn").click(); }
     });
 
-    // ===== 이벤트 바인딩 =====
+    $("#usage-used").addEventListener("click", ()=>{
+      if (!activeDeviceId) return;
+      const cur = devices.find(x => x.id === activeDeviceId); if (!cur) return;
+      cur.used = true; saveState(); renderDevices(); renderOutput();
+    });
+    $("#usage-unused").addEventListener("click", ()=>{
+      if (!activeDeviceId) return;
+      const cur = devices.find(x => x.id === activeDeviceId); if (!cur) return;
+      cur.used = false; saveState(); renderDevices(); renderOutput();
+    });
+
     $("#search").addEventListener("input", (e) => {
       query = e.target.value || "";
       saveState();
@@ -743,14 +865,14 @@
 
     $("#clear-btn").addEventListener("click", () => {
       selected = {};
-      saveState();
+      syncSelectedToActiveDevice();
       renderList();
       renderSelectedChips();
       renderOutput();
     });
 
     $("#reset-btn").addEventListener("click", () => {
-      if (!confirm("저장된 데이터(부품 목록, 선택, 검색/태그/매핑)를 모두 삭제할까요?")) return;
+      if (!confirm("저장된 데이터(부품 목록, 선택, 기기/사용상태, 검색/태그/매핑)를 모두 삭제할까요?")) return;
       parts = [];
       selected = {};
       activeCategory = null;
@@ -759,6 +881,8 @@
       lastSheetName = "";
       rawRows = [];
       mapState = { tagIdx: 0, nameIdx: 1, hasHeader: true };
+      devices = [];
+      activeDeviceId = null;
       $("#search").value = "";
       localStorage.removeItem(STORAGE_KEY);
       updateFileInfo("엑셀(.xlsx, .xls) 파일을 업로드하세요.");
@@ -783,6 +907,7 @@
     });
 
     // 초기 로드
+    let mapState = { tagIdx: 0, nameIdx: 1, hasHeader: true };
     const restored = loadState();
     if (restored) {
       const more = lastSheetName ? ` • ${lastSheetName}` : "";
