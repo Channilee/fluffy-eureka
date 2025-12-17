@@ -173,7 +173,7 @@
     const COMMON_TAG = "공용";
     const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명","품목","제품명"];
     const TAG_HEADERS  = ["category","cat","tag","tags","카테고리","분류","태그"];
-    const TAG_GROUP_ALIASES = { 'pls': '킥보드', 'pl': '킥보드', 'b2': '자전거','b4': '자전거', '공용': '공용' };
+    const TAG_GROUP_ALIASES = { 'pls': '킥보드', 'pl': '킥보드', 'b2': '자전거', 'b4': '자전거', '공용': '공용' };
 
     const $ = (sel) => document.querySelector(sel);
     const normKR = (s) => (s || "").normalize("NFKD").toLowerCase().replace(/\s+/g, "");
