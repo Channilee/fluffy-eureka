@@ -96,6 +96,9 @@
           <button id="copy-all-log-btn" class="btn bg-indigo-600 hover:bg-indigo-500">
             <span id="copy-all-log-btn-text">전체 로그 복사</span>
           </button>
+          <button id="xlsx-all-btn" class="btn bg-orange-600 hover:bg-orange-500">
+            <span id="xlsx-all-btn-text">전체 기기 XLSX 출력</span>
+          </button>
         </div>
 
         <div class="mt-3 flex items-center gap-3">
@@ -297,7 +300,7 @@
         const file = new File([blob], `parts_${getCurrentTimestamp()}.csv`, { type: 'text/csv' });
         
         await navigator.share({
-          title: 'GCOO 부품 목록',
+          title: '부품 목록',
           text: '선택된 부품 목록입니다.',
           files: [file]
         });
@@ -307,7 +310,7 @@
         // 파일 공유 실패 시 텍스트로 공유 시도
         try {
           await navigator.share({
-            title: 'GCOO 부품 목록',
+            title: '부품 목록',
             text: csvContent
           });
           return true;
@@ -316,6 +319,98 @@
           return false;
         }
       }
+    }
+
+    // ===== XLSX 전체 기기 출력 기능 =====
+    function generateAllDevicesXLSX() {
+      if (!Array.isArray(devices) || devices.length === 0) {
+        alert('출력할 기기가 없습니다.');
+        return false;
+      }
+
+      const wsData = [];
+      
+      // 헤더 추가
+      wsData.push(['기기번호', '부품명(필수입력)', '', '수량', '', '', '']);
+      
+      // 기기별로 정렬
+      const sorted = [...devices].sort((a,b) => {
+        const na = Number(a.id), nb = Number(b.id);
+        if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+        return String(a.id).localeCompare(String(b.id), 'ko');
+      });
+
+      sorted.forEach(device => {
+        if (!device) return;
+        
+        // 장력조정인 경우
+        if (device.used === false) {
+          wsData.push([device.id, '장력조정', '', '', '', '', '']);
+          return;
+        }
+
+        // 부품 사용인 경우
+        const entries = Object.entries(device.selected || {}).filter(([,q]) => Number(q) > 0);
+        if (!entries.length) return;
+
+        let isFirstPart = true;
+        entries.forEach(([pid, qty]) => {
+          const part = parts.find(x => x.id === pid);
+          if (!part) return;
+          
+          // 부품명에 태그 추가 (예: [pl.s]나사)
+          const partNameWithTag = part.tags.length > 0 
+            ? `[${part.tags[0]}]${part.name}` 
+            : part.name;
+          
+          // 첫 번째 부품에만 기기번호 표시, 나머지는 빈칸
+          const deviceNumber = isFirstPart ? device.id : '';
+          
+          wsData.push([
+            deviceNumber,
+            partNameWithTag,
+            '', // 공란
+            Number(qty),
+            '', // 공란
+            '', // 공란
+            ''  // 공란
+          ]);
+          
+          isFirstPart = false;
+        });
+      });
+
+      if (wsData.length <= 1) {
+        alert('출력할 데이터가 없습니다.');
+        return false;
+      }
+
+      // 워크시트 생성
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      
+      // 컬럼 너비 설정
+      ws['!cols'] = [
+        { width: 10 }, // 기기번호
+        { width: 25 }, // 부품명(필수입력)
+        { width: 5 },  // 공란
+        { width: 8 },  // 수량
+        { width: 5 },  // 공란
+        { width: 5 },  // 공란
+        { width: 5 }   // 공란
+      ];
+
+      // 워크북 생성
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '전체기기부품사용내역');
+
+      // 파일명 생성 (분초 포함)
+      const timestamp = getCurrentTimestamp();
+      const filename = `all_devices_${timestamp}.xlsx`;
+
+      // 파일 다운로드
+      XLSX.writeFile(wb, filename);
+      
+      return true;
     }
 
     // ===== 복사 버튼 성공 표시 =====
@@ -364,6 +459,19 @@
       }, 2000);
     }
 
+    function showXLSXSuccess(button, textElement) {
+      const originalText = textElement.textContent;
+      const originalClass = button.className;
+      
+      textElement.textContent = "✅ XLSX 생성됨!";
+      button.classList.add("copy-success");
+      
+      setTimeout(() => {
+        textElement.textContent = originalText;
+        button.className = originalClass;
+      }, 2000);
+    }
+
     // ===== XLSX 로더 보강: 메인 CDN 실패 시 대체 =====
     async function ensureXLSX() {
       if (window.XLSX) return true;
@@ -377,7 +485,7 @@
     }
 
     // ===== 상수 & 유틸 =====
-    const STORAGE_KEY = 'gcoo.parts-selector.v3';
+    const STORAGE_KEY = 'parts-selector.v3';
     const COMMON_TAG = "공용";
     const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명","품목","제품명"];
     const TAG_HEADERS  = ["category","cat","tag","tags","카테고리","분류","태그"];
@@ -1204,6 +1312,12 @@
     });
 
     $("#copy-all-log-btn").addEventListener("click", copyAllLogs);
+    $("#xlsx-all-btn").addEventListener("click", async () => {
+      const success = generateAllDevicesXLSX();
+      if (success) {
+        showXLSXSuccess($("#xlsx-all-btn"), $("#xlsx-all-btn-text"));
+      }
+    });
     $("#delete-all-devices-btn").addEventListener("click", deleteAllDevices);
 
     // ===== 검색 이벤트 (초성 검색 복원) =====
