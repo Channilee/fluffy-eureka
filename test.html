@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-  <title>부품 선택 → 쉼표 데이터 생성기 (일련번호/그룹태그/안정화) - Mobile Optimized</title>
+  <title>부품 선택 → 쉼표 데이터 생성기 (일련번호/그룹태그/안정화)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
@@ -13,10 +13,16 @@
     .dropzone { border: 2px dashed #3f3f46; border-radius: 16px; }
     .dropzone.dragover { background: rgba(99,102,241,0.08); border-color: #6366f1; }
     .panel { border: 1px solid #262626; border-radius: 16px; background: #0b0b0c; }
-    .btn { border-radius: 12px; padding: 8px 12px; } /* 원래 크기로 복원 */
+    .btn { border-radius: 12px; padding: 8px 12px; }
     .seg { border-radius: 9999px; overflow: hidden; border: 1px solid #3f3f46; }
-    .seg > button { padding: 6px 12px; } /* 원래 크기로 복원 */
+    .seg > button { padding: 6px 12px; }
     .seg .active { background: #6366f1; }
+    
+    /* 복사 성공 애니메이션 */
+    .copy-success {
+      background-color: #10b981 !important;
+      transition: all 0.3s ease;
+    }
     
     /* 검색 하이라이트 */
     .highlight {
@@ -27,27 +33,17 @@
       padding: 0 2px;
     }
     
-    /* 모바일 입력 최적화 - 크기만 적당히 조정 */
+    /* 모바일 입력 최적화 */
     input[type="text"], input[type="number"] {
       font-size: 16px; /* iOS 확대 방지 */
     }
     textarea {
       font-size: 16px;
     }
-    
-    /* 햅틱 피드백 시뮬레이션 */
-    .haptic-feedback {
-      animation: haptic 0.1s ease;
-    }
-    @keyframes haptic {
-      0% { transform: scale(1); }
-      50% { transform: scale(0.98); }
-      100% { transform: scale(1); }
-    }
   </style>
 </head>
 <body class="min-h-screen bg-neutral-950 text-neutral-100">
-  <main class="max-w-5xl mx-auto py-6 px-4"> <!-- 패딩 적당히 조정 -->
+  <main class="max-w-5xl mx-auto py-6 px-4">
     <!-- 업로드/초기화 -->
     <section class="grid grid-cols-1 gap-3 mb-4">
       <div class="flex items-center gap-3 flex-wrap">
@@ -97,7 +93,9 @@
         <div id="device-chips" class="flex flex-wrap gap-2 mt-2"></div>
 
         <div class="mt-3 flex items-center gap-2 flex-wrap">
-          <button id="copy-all-log-btn" class="btn bg-indigo-600 hover:bg-indigo-500">전체 로그 복사</button>
+          <button id="copy-all-log-btn" class="btn bg-indigo-600 hover:bg-indigo-500">
+            <span id="copy-all-log-btn-text">전체 로그 복사</span>
+          </button>
         </div>
 
         <div class="mt-3 flex items-center gap-3">
@@ -157,14 +155,9 @@
           </button>
         </div>
         <div class="mb-3">
-          <div class="relative">
-            <input id="search" type="text" 
-                   placeholder="부품 검색... (초성 검색 가능: ㅂㄹㅌ → 볼트)"
-                   class="w-full rounded-2xl px-4 py-2 bg-neutral-900 border border-neutral-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-            <div id="search-loading" class="absolute right-3 top-1/2 transform -translate-y-1/2 hidden">
-              <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-500"></div>
-            </div>
-          </div>
+          <input id="search" type="text" 
+                 placeholder="부품 검색... (초성 검색 가능: ㅂㄹㅌ → 볼트)"
+                 class="w-full rounded-2xl px-4 py-2 bg-neutral-900 border border-neutral-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
           <div id="search-info" class="text-xs text-neutral-500 mt-1"></div>
         </div>
         <div id="list" class="max-h-[420px] overflow-auto pr-1 custom-scroll"></div>
@@ -181,8 +174,16 @@
           <textarea id="output" readonly 
                     class="w-full h-32 mt-1 rounded-xl px-3 py-2 bg-black/60 border border-neutral-800 font-mono text-sm focus:outline-none"
                     placeholder="선택된 부품들이 여기에 표시됩니다..."></textarea>
-          <div class="flex items-center gap-2 mt-2">
-            <button id="copy-btn" class="btn bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">복사하기</button>
+          <div class="flex items-center gap-2 mt-2 flex-wrap">
+            <button id="copy-btn" class="btn bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
+              <span id="copy-btn-text">복사하기</span>
+            </button>
+            <button id="csv-btn" class="btn bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed">
+              <span id="csv-btn-text">CSV 다운로드</span>
+            </button>
+            <button id="share-btn" class="btn bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed">
+              <span id="share-btn-text">공유</span>
+            </button>
           </div>
           <p class="mt-2 text-xs text-neutral-500">
             참고: 메모(현재 기기 출력)는 내부 공백이 제거됩니다. "장력조정" 선택 시 메모에는 "장력조정"이 표시됩니다.
@@ -193,7 +194,7 @@
   </main>
 
   <script>
-    // ===== 초성 검색 유틸리티 =====
+    // ===== 초성 검색 유틸리티 (개선된 버전) =====
     const CHOSUNG = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
     
     function getChosung(str) {
@@ -208,34 +209,20 @@
       }).join('');
     }
     
+    // 공백이 있는 부품명의 초성 검색 개선
     function matchesChosung(text, query) {
+      // 공백 제거한 텍스트의 초성
+      const textChosungNoSpace = getChosung(text.replace(/\s+/g, ''));
+      // 원본 텍스트의 초성
       const textChosung = getChosung(text);
-      return textChosung.includes(query);
-    }
-
-    // ===== 디바운싱 유틸리티 =====
-    function debounce(func, wait) {
-      let timeout;
-      return function executedFunction(...args) {
-        const later = () => {
-          clearTimeout(timeout);
-          func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-      };
-    }
-
-    // ===== 햅틱 피드백 시뮬레이션 =====
-    function hapticFeedback(element) {
-      if (!element) return;
-      element.classList.add('haptic-feedback');
-      setTimeout(() => element.classList.remove('haptic-feedback'), 100);
       
-      // 실제 햅틱 피드백 (지원하는 기기에서)
-      if (navigator.vibrate) {
-        navigator.vibrate(50);
-      }
+      // 공백 제거 쿼리와 원본 쿼리 모두 확인
+      const queryNoSpace = query.replace(/\s+/g, '');
+      
+      return textChosungNoSpace.includes(queryNoSpace) || 
+             textChosung.includes(query) ||
+             textChosungNoSpace.includes(query) ||
+             textChosung.includes(queryNoSpace);
     }
 
     // ===== 검색 하이라이팅 =====
@@ -244,6 +231,137 @@
       
       const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
       return text.replace(regex, '<span class="highlight">$1</span>');
+    }
+
+    // ===== CSV 생성 및 다운로드 =====
+    function generateCSV() {
+      const items = parts.filter(p => selected[p.id] && selected[p.id] > 0);
+      if (items.length === 0) return null;
+
+      const header = '부품명(필수입력)\t부품번호(필수입력)\t수량\t단가\t공임비\t할인\t메모';
+      const rows = items.map(p => {
+        const qty = selected[p.id];
+        return `${p.name}\t\t${qty}\t\t\t\t`;
+      });
+
+      return header + '\n' + rows.join('\n');
+    }
+
+    function getCurrentTimestamp() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const hour = String(now.getHours()).padStart(2, '0');
+      const min = String(now.getMinutes()).padStart(2, '0');
+      const sec = String(now.getSeconds()).padStart(2, '0');
+      
+      return `${year}-${month}-${day}_${hour}-${min}-${sec}`;
+    }
+
+    async function downloadCSV() {
+      const csvContent = generateCSV();
+      if (!csvContent) {
+        alert('다운로드할 부품이 선택되지 않았습니다.');
+        return false;
+      }
+
+      const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      
+      link.href = url;
+      link.download = `parts_${getCurrentTimestamp()}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      return true;
+    }
+
+    async function shareCSV() {
+      if (!navigator.share) {
+        alert('이 브라우저는 공유 기능을 지원하지 않습니다.');
+        return false;
+      }
+
+      const csvContent = generateCSV();
+      if (!csvContent) {
+        alert('공유할 부품이 선택되지 않았습니다.');
+        return false;
+      }
+
+      try {
+        const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const file = new File([blob], `parts_${getCurrentTimestamp()}.csv`, { type: 'text/csv' });
+        
+        await navigator.share({
+          title: 'GCOO 부품 목록',
+          text: '선택된 부품 목록입니다.',
+          files: [file]
+        });
+        return true;
+      } catch (error) {
+        console.error('공유 실패:', error);
+        // 파일 공유 실패 시 텍스트로 공유 시도
+        try {
+          await navigator.share({
+            title: 'GCOO 부품 목록',
+            text: csvContent
+          });
+          return true;
+        } catch (textError) {
+          alert('공유에 실패했습니다.');
+          return false;
+        }
+      }
+    }
+
+    // ===== 복사 버튼 성공 표시 =====
+    function showCopySuccess(button, textElement) {
+      const originalText = textElement.textContent;
+      const originalClass = button.className;
+      
+      // 성공 표시
+      textElement.textContent = "✅ 복사됨!";
+      button.classList.add("copy-success");
+      
+      // 2초 후 원래대로
+      setTimeout(() => {
+        textElement.textContent = originalText;
+        button.className = originalClass;
+      }, 2000);
+    }
+
+    function showDownloadSuccess(button, textElement) {
+      const originalText = textElement.textContent;
+      const originalClass = button.className;
+      
+      // 성공 표시
+      textElement.textContent = "✅ 다운로드됨!";
+      button.classList.add("copy-success");
+      
+      // 2초 후 원래대로
+      setTimeout(() => {
+        textElement.textContent = originalText;
+        button.className = originalClass;
+      }, 2000);
+    }
+
+    function showShareSuccess(button, textElement) {
+      const originalText = textElement.textContent;
+      const originalClass = button.className;
+      
+      // 성공 표시
+      textElement.textContent = "✅ 공유됨!";
+      button.classList.add("copy-success");
+      
+      // 2초 후 원래대로
+      setTimeout(() => {
+        textElement.textContent = originalText;
+        button.className = originalClass;
+      }, 2000);
     }
 
     // ===== XLSX 로더 보강: 메인 CDN 실패 시 대체 =====
@@ -382,9 +500,10 @@
       return Array.from(set);
     }
 
+    // ===== 개선된 검색 필터 =====
     function getFiltered() {
       const qn = normKR(query);
-      const isChosung = /^[ㄱ-ㅎ]+$/.test(query.trim());
+      const isChosung = /^[ㄱ-ㅎ\s]+$/.test(query.trim());
       
       return parts.filter(p => {
         const gs = Array.isArray(p.groupTags) ? p.groupTags : (Array.isArray(p.tags) ? p.tags.map(mapTagToGroup) : []);
@@ -513,19 +632,13 @@
           btn.className = "px-2";
           btn.textContent = count ? `${d.id}(${count})` : d.id;
           btn.title = d.used ? "부품 사용" : "장력조정";
-          btn.addEventListener("click", ()=> {
-            hapticFeedback(btn);
-            switchActiveDevice(d.id);
-          });
+          btn.addEventListener("click", ()=> switchActiveDevice(d.id));
 
           const del = document.createElement("button");
           del.className = "rounded-full px-2 hover:bg-neutral-800";
           del.textContent = "✕";
           del.title = "삭제";
-          del.addEventListener("click", ()=> {
-            hapticFeedback(del);
-            removeDevice(d.id);
-          });
+          del.addEventListener("click", ()=> removeDevice(d.id));
 
           wrap.append(btn, del);
           chips.appendChild(wrap);
@@ -557,7 +670,6 @@
         btn.textContent = cat;
         btn.className = `rounded-full px-3 py-1 border select-none ${isActive ? "bg-indigo-600 border-indigo-500" : "bg-neutral-900 border-neutral-700 hover:bg-neutral-800"}`;
         btn.addEventListener("click", () => {
-          hapticFeedback(btn);
           activeCategory = (activeCategory === cat) ? null : cat;
           saveState();
           renderCategoryBar();
@@ -567,7 +679,6 @@
       });
     }
 
-    // ===== 원래 UI로 복원된 부품 선택 부분 =====
     function liBaseClass(checked) {
       return `flex items-center gap-3 bg-neutral-950 border border-neutral-800 rounded-xl p-2 ${checked ? "ring-1 ring-indigo-500/40" : ""}`;
     }
@@ -609,7 +720,7 @@
       // 검색 정보 표시
       const searchInfo = $("#search-info");
       if (query.trim()) {
-        const isChosung = /^[ㄱ-ㅎ]+$/.test(query.trim());
+        const isChosung = /^[ㄱ-ㅎ\s]+$/.test(query.trim());
         searchInfo.textContent = isChosung ? 
           `초성 검색: "${query}" → ${filtered.length}건` : 
           `검색: "${query}" → ${filtered.length}건`;
@@ -643,7 +754,6 @@
         cb.className = "h-8 w-8 accent-indigo-500";
         cb.setAttribute("aria-label", "선택");
         cb.addEventListener("change", () => {
-          hapticFeedback(cb);
           if (cb.checked) {
             selected[p.id] = Math.max(1, Number(qty) || 1);
           } else {
@@ -673,10 +783,7 @@
         nameSpan.innerHTML = highlightText(p.name, query.trim());
         infoInner.appendChild(nameSpan);
 
-        infoWrap.addEventListener("click", () => { 
-          hapticFeedback(infoWrap);
-          toggleSelectionById(p.id, li, cb); 
-        });
+        infoWrap.addEventListener("click", () => toggleSelectionById(p.id, li, cb));
         infoWrap.appendChild(infoInner);
 
         const qtyWrap = document.createElement("div");
@@ -710,19 +817,13 @@
         plusBtn.textContent = "+";
         plusBtn.className = "px-4 py-2 bg-neutral-800 rounded-lg hover:bg-neutral-700 text-2xl";
         plusBtn.setAttribute("aria-label", "수량 증가");
-        plusBtn.addEventListener("click", () => {
-          hapticFeedback(plusBtn);
-          setQty(Number(qtyInp.value) + 1);
-        });
+        plusBtn.addEventListener("click", () => setQty(Number(qtyInp.value) + 1));
 
         const minusBtn = document.createElement("button");
         minusBtn.textContent = "−";
         minusBtn.className = "px-4 py-2 bg-neutral-800 rounded-lg hover:bg-neutral-700 text-2xl";
         minusBtn.setAttribute("aria-label", "수량 감소");
-        minusBtn.addEventListener("click", () => {
-          hapticFeedback(minusBtn);
-          setQty(Math.max(1, Number(qtyInp.value) - 1));
-        });
+        minusBtn.addEventListener("click", () => setQty(Math.max(1, Number(qtyInp.value) - 1)));
 
         qtyWrap.append(qtyLbl, qtyInp, plusBtn, minusBtn);
 
@@ -734,12 +835,6 @@
       renderSelectedChips();
       renderOutput();
     }
-
-    // ===== 디바운싱된 검색 함수 =====
-    const debouncedSearch = debounce(() => {
-      $("#search-loading").classList.add("hidden");
-      renderList();
-    }, 300);
 
     function renderSelectedChips() {
       const box = $("#selected-chips");
@@ -764,7 +859,6 @@
         btn.title = "제거";
         btn.textContent = "✕";
         btn.addEventListener("click", () => {
-          hapticFeedback(btn);
           delete selected[p.id];
           renderList();
           renderSelectedChips();
@@ -787,6 +881,8 @@
       if (!usedState) {
         out.value = "장력조정";
         $("#copy-btn").disabled = false;
+        $("#csv-btn").disabled = true;
+        $("#share-btn").disabled = true;
         return;
       }
 
@@ -797,7 +893,11 @@
         tokens.push(q === 1 ? `${p.name}` : `${p.name}x${q}`);
       });
       out.value = tokens.join(",").replace(/\s+/g, "");
-      $("#copy-btn").disabled = out.value.length === 0;
+      
+      const hasSelection = tokens.length > 0;
+      $("#copy-btn").disabled = !hasSelection;
+      $("#csv-btn").disabled = !hasSelection;
+      $("#share-btn").disabled = !hasSelection;
     }
 
     // ===== 전체 로그(헤더 없음 / 공백 규칙 적용) =====
@@ -841,8 +941,7 @@
       if (!text.trim()) { alert("복사할 로그가 없습니다."); return; }
       try {
         await navigator.clipboard.writeText(text);
-        hapticFeedback($("#copy-all-log-btn"));
-        alert("전체 로그가 복사되었습니다!");
+        showCopySuccess($("#copy-all-log-btn"), $("#copy-all-log-btn-text"));
       } catch (e) {
         alert("복사에 실패했어요. 수동으로 복사해 주세요.\n\n" + text);
       }
@@ -1094,7 +1193,6 @@
       if (!activeDeviceId) return;
       const cur = devices.find(x => x.id === activeDeviceId); if (!cur) return;
       cur.used = true; 
-      hapticFeedback($("#usage-used"));
       saveState(); renderDevices(); renderOutput();
     });
     $("#usage-unused").addEventListener("click", ()=>{
@@ -1102,23 +1200,17 @@
       if (hasActiveSelection()) return;
       const cur = devices.find(x => x.id === activeDeviceId); if (!cur) return;
       cur.used = false; 
-      hapticFeedback($("#usage-unused"));
       saveState(); renderDevices(); renderOutput();
     });
 
     $("#copy-all-log-btn").addEventListener("click", copyAllLogs);
     $("#delete-all-devices-btn").addEventListener("click", deleteAllDevices);
 
-    // ===== 스마트 검색 이벤트 (디바운싱) =====
+    // ===== 검색 이벤트 (초성 검색 복원) =====
     $("#search").addEventListener("input", (e) => {
       query = e.target.value || "";
       saveState();
-      
-      if (query.trim()) {
-        $("#search-loading").classList.remove("hidden");
-      }
-      
-      debouncedSearch();
+      renderList();
     });
 
     $("#clear-btn").addEventListener("click", () => {
@@ -1148,13 +1240,27 @@
       $("#mapping-panel").classList.add("hidden");
     });
 
+    // ===== 복사/다운로드/공유 버튼 이벤트 =====
     $("#copy-btn").addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText($("#output").value);
-        hapticFeedback($("#copy-btn"));
-        alert("복사되었습니다!");
+        showCopySuccess($("#copy-btn"), $("#copy-btn-text"));
       } catch (e) {
         alert("복사에 실패했어요. 수동으로 복사해 주세요.");
+      }
+    });
+
+    $("#csv-btn").addEventListener("click", async () => {
+      const success = await downloadCSV();
+      if (success) {
+        showDownloadSuccess($("#csv-btn"), $("#csv-btn-text"));
+      }
+    });
+
+    $("#share-btn").addEventListener("click", async () => {
+      const success = await shareCSV();
+      if (success) {
+        showShareSuccess($("#share-btn"), $("#share-btn-text"));
       }
     });
 
