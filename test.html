@@ -1018,34 +1018,36 @@
       return { tagIdx, nameIdx, hasHeader, colMax };
     }
 
-    function parseRows(rows, tagIdx, nameIdx, hasHeader) {
-      const start = hasHeader ? 1 : 0;
-      const parsed = [];
-      let skipped = 0;
-      for (let r = start; r < rows.length; r++) {
-        const row = rows[r] || [];
-        let cat = tagIdx >= 0 ? String(row[tagIdx] ?? "").trim() : "";
-        let nameRaw = String(row[nameIdx] ?? "").trim();
-        if (!cat && !nameRaw) { skipped++; continue; }
-        if (!cat) {
-          const legacy = parseBracketed(nameRaw);
-          if (legacy) { cat = legacy.category; nameRaw = legacy.name; }
-        }
-        const tags = splitTags(cat || "기타");
-        const name = stripBracketPrefix(nameRaw);
-        const originalName = nameRaw;
-        if (!name) { skipped++; continue; }
-        const id = `${name}||${tags.slice().sort().join('/')}`;
-        const groupTags = tags.map(mapTagToGroup);
-        parsed.push({ 
-          id, tags, groupTags, 
-          name,
-          originalName,
-          normName: normKR(name) 
-        });
-      }
-      return { parsed, skipped };
+function parseRows(rows, tagIdx, nameIdx, hasHeader) {
+  const start = hasHeader ? 1 : 0;
+  const parsed = [];
+  let skipped = 0;
+  for (let r = start; r < rows.length; r++) {
+    const row = rows[r] || [];
+    let cat = tagIdx >= 0 ? String(row[tagIdx] ?? "").trim() : "";
+    let nameRaw = String(row[nameIdx] ?? "").trim();
+    
+    const originalName = nameRaw;  // ⭐ 원본 B열 값을 먼저 저장!
+    
+    if (!cat && !nameRaw) { skipped++; continue; }
+    if (!cat) {
+      const legacy = parseBracketed(nameRaw);
+      if (legacy) { cat = legacy.category; nameRaw = legacy.name; }
     }
+    const tags = splitTags(cat || "기타");
+    const name = stripBracketPrefix(nameRaw);
+    if (!name) { skipped++; continue; }
+    const id = `${name}||${tags.slice().sort().join('/')}`;
+    const groupTags = tags.map(mapTagToGroup);
+    parsed.push({ 
+      id, tags, groupTags, 
+      name,
+      originalName,  // ⭐ 원본 값 저장
+      normName: normKR(name) 
+    });
+  }
+  return { parsed, skipped };
+}
 
     function bestEffortParse(rows) {
       const sugg = suggestMapping(rows);
