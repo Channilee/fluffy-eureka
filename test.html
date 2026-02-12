@@ -233,6 +233,7 @@
       return text.replace(regex, '<span class="highlight">$1</span>');
     }
 
+    // ===== 타임스탬프 및 날짜 함수 =====
     function getCurrentTimestamp() {
       const now = new Date();
       const year = now.getFullYear();
@@ -245,10 +246,19 @@
       return `${year}-${month}-${day}_${hour}-${min}-${sec}`;
     }
 
+    function getCurrentDate() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      
+      return `${year}-${month}-${day}`;
+    }
+
     // ===== XLSX 저장용 전역 변수 =====
     let lastGeneratedXLSX = null;
 
-    // ===== XLSX 전체 기기 출력 기능 =====
+    // ===== XLSX 전체 기기 출력 기능 (8열 구조) =====
     function generateAllDevicesXLSX() {
       if (!Array.isArray(devices) || devices.length === 0) {
         alert('출력할 기기가 없습니다.');
@@ -257,8 +267,8 @@
 
       const wsData = [];
       
-      // 헤더 추가 (마지막을 '메모'로 변경)
-      wsData.push(['기기번호', '부품명(필수입력)', '', '수량', '', '', '메모']);
+      // 헤더 추가 (8열 구조 - 새로운 메모 컬럼 추가)
+      wsData.push(['기기번호', '부품명(필수입력)', '', '수량', '', '', '', '메모']);
       
       // 기기별로 정렬
       const sorted = [...devices].sort((a,b) => {
@@ -272,7 +282,7 @@
         
         // 장력조정인 경우
         if (device.used === false) {
-          wsData.push([device.id, '장력조정', '', '', '', '', '']);
+          wsData.push([device.id, '장력조정', '', '', '', '', '', '']);
           return;
         }
 
@@ -308,7 +318,8 @@
             Number(qty),
             '', // 공란
             '', // 공란
-            isFirstPart ? memo : ''           // 첫 번째 부품에만 메모 표시
+            '', // 공란 (새로 추가된 7번째 컬럼)
+            isFirstPart ? memo : ''           // 8번째 컬럼에 메모
           ]);
           
           isFirstPart = false;
@@ -323,7 +334,7 @@
       // 워크시트 생성
       const ws = XLSX.utils.aoa_to_sheet(wsData);
       
-      // 컬럼 너비 설정
+      // 컬럼 너비 설정 (8열)
       ws['!cols'] = [
         { width: 10 }, // 기기번호
         { width: 25 }, // 부품명(필수입력)
@@ -331,7 +342,7 @@
         { width: 8 },  // 수량
         { width: 5 },  // 공란
         { width: 5 },  // 공란
-        { width: 5 },  // 공란
+        { width: 5 },  // 공란 (새로 추가)
         { width: 20 }  // 메모
       ];
 
@@ -352,7 +363,7 @@
       return true;
     }
 
-    // ===== XLSX 파일 공유 기능 =====
+    // ===== XLSX 파일 공유 기능 (날짜 메시지) =====
     async function shareXLSXFile() {
       if (!lastGeneratedXLSX) {
         alert('먼저 XLSX 파일을 생성해주세요.');
@@ -374,9 +385,11 @@
           type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
         });
         
+        const currentDate = getCurrentDate(); // 오늘 날짜 가져오기
+        
         await navigator.share({
           title: '전체 기기 부품 사용내역',
-          text: '전체 기기 부품 사용내역 XLSX 파일입니다.',
+          text: `/${currentDate}/부품 사용내역 입니다.`, // 변경된 메시지
           files: [file]
         });
         return true;
