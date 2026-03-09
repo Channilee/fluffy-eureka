@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
   <title>부품 선택 → 쉼표 데이터 생성기 (일련번호/그룹태그/안정화)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -17,11 +17,30 @@
     .seg { border-radius: 9999px; overflow: hidden; border: 1px solid #3f3f46; }
     .seg > button { padding: 6px 12px; }
     .seg .active { background: #6366f1; }
+    
+    .copy-success {
+      background-color: #10b981 !important;
+      transition: all 0.3s ease;
+    }
+    
+    .highlight {
+      background-color: #fbbf24;
+      color: #000;
+      font-weight: bold;
+      border-radius: 2px;
+      padding: 0 2px;
+    }
+    
+    input[type="text"], input[type="number"] {
+      font-size: 16px;
+    }
+    textarea {
+      font-size: 16px;
+    }
   </style>
 </head>
 <body class="min-h-screen bg-neutral-950 text-neutral-100">
-  <main class="max-w-5xl mx-auto py-10 px-4">
-    <!-- 업로드/초기화 -->
+  <main class="max-w-5xl mx-auto py-6 px-4">
     <section class="grid grid-cols-1 gap-3 mb-4">
       <div class="flex items-center gap-3 flex-wrap">
         <label class="rounded-2xl px-3 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 cursor-pointer select-none">
@@ -34,12 +53,10 @@
         <span id="file-info" class="text-xs text-neutral-400">엑셀(.xlsx, .xls) 파일을 업로드하세요.</span>
       </div>
 
-      <!-- 드래그&드롭 -->
       <div id="dropzone" class="dropzone px-4 py-6 text-sm text-neutral-400">
         파일을 이 영역으로 드래그&드롭하거나, 상단의 파일 업로드 버튼을 사용하세요.
       </div>
 
-      <!-- 기기(일련번호) 관리 -->
       <div class="panel p-4">
         <div class="flex items-center justify-between gap-3 flex-wrap">
           <div class="flex items-center gap-2">
@@ -59,8 +76,10 @@
         </div>
 
         <div class="mt-3 flex items-center gap-2 flex-wrap">
-          <input id="device-input" type="text" class="rounded-xl px-3 py-2 bg-neutral-900 border border-neutral-700 w-64"
-                 placeholder="일련번호(예: 609024, 628564)" />
+          <input id="device-input" type="text" 
+                 class="rounded-xl px-3 py-2 bg-neutral-900 border border-neutral-700 w-64"
+                 placeholder="일련번호(예: 609024, 628564)" 
+                 inputmode="numeric" />
           <button id="device-add-btn" class="btn bg-neutral-800 hover:bg-neutral-700 border border-neutral-700">추가</button>
           <span class="text-xs text-neutral-500">쉼표/공백으로 여러 개 입력 가능. 끝의 마침표/쉼표는 자동 제거됩니다.</span>
         </div>
@@ -68,7 +87,15 @@
         <div id="device-chips" class="flex flex-wrap gap-2 mt-2"></div>
 
         <div class="mt-3 flex items-center gap-2 flex-wrap">
-          <button id="copy-all-log-btn" class="btn bg-indigo-600 hover:bg-indigo-500">전체 로그 복사</button>
+          <button id="copy-all-log-btn" class="btn bg-indigo-600 hover:bg-indigo-500">
+            <span id="copy-all-log-btn-text">전체 로그 복사</span>
+          </button>
+          <button id="xlsx-all-btn" class="btn bg-orange-600 hover:bg-orange-500">
+            <span id="xlsx-all-btn-text">전체 기기 XLSX 출력</span>
+          </button>
+          <button id="share-xlsx-btn" class="btn bg-purple-600 hover:bg-purple-500">
+            <span id="share-xlsx-btn-text">XLSX 파일 공유</span>
+          </button>
         </div>
 
         <div class="mt-3 flex items-center gap-3">
@@ -80,7 +107,6 @@
         </div>
       </div>
 
-      <!-- 매핑 패널(수동 지정) -->
       <div id="mapping-panel" class="panel p-4 hidden">
         <div class="flex items-center justify-between">
           <h3 class="font-semibold">열 매핑 설정</h3>
@@ -117,7 +143,6 @@
     </section>
 
     <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <!-- 좌: 리스트 -->
       <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg">
         <div class="flex items-center justify-between mb-3">
           <h2 class="text-lg font-semibold">
@@ -128,13 +153,14 @@
           </button>
         </div>
         <div class="mb-3">
-          <input id="search" type="text" placeholder="부품 검색... (띄어쓰기 무시 검색)"
+          <input id="search" type="text" 
+                 placeholder="부품 검색... (초성 검색 가능: ㅂㄹㅌ → 볼트)"
                  class="w-full rounded-2xl px-4 py-2 bg-neutral-900 border border-neutral-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <div id="search-info" class="text-xs text-neutral-500 mt-1"></div>
         </div>
         <div id="list" class="max-h-[420px] overflow-auto pr-1 custom-scroll"></div>
       </div>
 
-      <!-- 우: 선택/출력(메모 대체) -->
       <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg flex flex-col">
         <div class="flex items-center justify-between mb-3">
           <h2 class="text-lg font-semibold">선택된 항목(현재 기기 메모)</h2>
@@ -142,12 +168,16 @@
         </div>
         <div id="selected-chips" class="flex flex-wrap gap-2 mb-4 min-h-[42px]"></div>
         <div>
-          <textarea id="output" readonly class="w-full h-32 mt-1 rounded-xl px-3 py-2 bg-black/60 border border-neutral-800 font-mono text-sm focus:outline-none"></textarea>
-          <div class="flex items-center gap-2 mt-2">
-            <button id="copy-btn" class="btn bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">복사하기</button>
+          <textarea id="output" readonly 
+                    class="w-full h-32 mt-1 rounded-xl px-3 py-2 bg-black/60 border border-neutral-800 font-mono text-sm focus:outline-none"
+                    placeholder="선택된 부품들이 여기에 표시됩니다..."></textarea>
+          <div class="flex items-center gap-2 mt-2 flex-wrap">
+            <button id="copy-btn" class="btn bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
+              <span id="copy-btn-text">복사하기</span>
+            </button>
           </div>
           <p class="mt-2 text-xs text-neutral-500">
-            참고: 메모(현재 기기 출력)는 내부 공백이 제거됩니다. “장력조정” 선택 시 메모에는 “장력조정”이 표시됩니다.
+            참고: 메모(현재 기기 출력)는 내부 공백이 제거됩니다. "장력조정" 선택 시 메모에는 "장력조정"이 표시됩니다.
           </p>
         </div>
       </div>
@@ -155,7 +185,223 @@
   </main>
 
   <script>
-    // ===== XLSX 로더 보강: 메인 CDN 실패 시 대체 =====
+    const CHOSUNG = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+    
+    function getChosung(str) {
+      return str.split('').map(char => {
+        const code = char.charCodeAt(0);
+        if (code >= 44032 && code <= 55203) {
+          const base = code - 44032;
+          const choIdx = Math.floor(base / 588);
+          return CHOSUNG[choIdx];
+        }
+        return char;
+      }).join('');
+    }
+    
+    function matchesChosung(text, query) {
+      const textChosungNoSpace = getChosung(text.replace(/\s+/g, ''));
+      const textChosung = getChosung(text);
+      const queryNoSpace = query.replace(/\s+/g, '');
+      
+      return textChosungNoSpace.includes(queryNoSpace) || 
+             textChosung.includes(query) ||
+             textChosungNoSpace.includes(query) ||
+             textChosung.includes(queryNoSpace);
+    }
+
+    function highlightText(text, query) {
+      if (!query.trim()) return text;
+      
+      const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+      return text.replace(regex, '<span class="highlight">$1</span>');
+    }
+
+    function getCurrentTimestamp() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const hour = String(now.getHours()).padStart(2, '0');
+      const min = String(now.getMinutes()).padStart(2, '0');
+      const sec = String(now.getSeconds()).padStart(2, '0');
+      
+      return `${year}-${month}-${day}_${hour}-${min}-${sec}`;
+    }
+
+    function getCurrentDate() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      
+      return `${year}-${month}-${day}`;
+    }
+
+    let lastGeneratedXLSX = null;
+
+    function generateAllDevicesXLSX() {
+      if (!Array.isArray(devices) || devices.length === 0) {
+        alert('출력할 기기가 없습니다.');
+        return false;
+      }
+
+      const wsData = [];
+      
+      wsData.push(['기기번호', '부품명(필수입력)', '', '수량', '', '', '', '메모']);
+      
+      const sorted = [...devices].sort((a,b) => {
+        const na = Number(a.id), nb = Number(b.id);
+        if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+        return String(a.id).localeCompare(String(b.id), 'ko');
+      });
+
+      sorted.forEach(device => {
+        if (!device) return;
+        
+        if (device.used === false) {
+          wsData.push([device.id, '장력조정', '', '', '', '', '', '']);
+          return;
+        }
+
+        const entries = Object.entries(device.selected || {}).filter(([,q]) => Number(q) > 0);
+        if (!entries.length) return;
+
+        const memoTokens = [];
+        entries.forEach(([pid, qty]) => {
+          const part = parts.find(x => x.id === pid);
+          if (!part) return;
+          const base = part.name.replace(/\s+/g, "");
+          const n = Number(qty) || 0;
+          memoTokens.push(n <= 1 ? base : `${base}x${n}`);
+        });
+        const memo = memoTokens.length > 0 ? `${memoTokens.join(",")} 교체` : '';
+
+        let isFirstPart = true;
+        entries.forEach(([pid, qty]) => {
+          const part = parts.find(x => x.id === pid);
+          if (!part) return;
+          
+          const originalPartName = part.originalName || part.name;
+          
+          wsData.push([
+            isFirstPart ? device.id : '',
+            originalPartName,
+            '',
+            Number(qty),
+            '', '', '',
+            isFirstPart ? memo : ''
+          ]);
+          
+          isFirstPart = false;
+        });
+      });
+
+      if (wsData.length <= 1) {
+        alert('출력할 데이터가 없습니다.');
+        return false;
+      }
+
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      
+      ws['!cols'] = [
+        { width: 10 },
+        { width: 25 },
+        { width: 5 },
+        { width: 8 },
+        { width: 5 },
+        { width: 5 },
+        { width: 5 },
+        { width: 20 }
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '전체기기부품사용내역');
+
+      lastGeneratedXLSX = wb;
+
+      const timestamp = getCurrentTimestamp();
+      const filename = `all_devices_${timestamp}.xlsx`;
+
+      XLSX.writeFile(wb, filename);
+      
+      return true;
+    }
+
+    async function shareXLSXFile() {
+      if (!lastGeneratedXLSX) {
+        alert('먼저 XLSX 파일을 생성해주세요.');
+        return false;
+      }
+
+      if (!navigator.share) {
+        alert('이 브라우저는 공유 기능을 지원하지 않습니다.');
+        return false;
+      }
+
+      try {
+        const xlsxBuffer = XLSX.write(lastGeneratedXLSX, { bookType: 'xlsx', type: 'array' });
+        const blob = new Blob([xlsxBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        
+        const timestamp = getCurrentTimestamp();
+        const file = new File([blob], `all_devices_${timestamp}.xlsx`, { 
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+        });
+        
+        const currentDate = getCurrentDate();
+        
+        await navigator.share({
+          title: '전체 기기 부품 사용내역',
+          text: `/${currentDate}/부품 사용내역 입니다.`,
+          files: [file]
+        });
+        return true;
+      } catch (error) {
+        console.error('XLSX 공유 실패:', error);
+        alert('XLSX 파일 공유에 실패했습니다.');
+        return false;
+      }
+    }
+
+    function showCopySuccess(button, textElement) {
+      const originalText = textElement.textContent;
+      const originalClass = button.className;
+      
+      textElement.textContent = "✅ 복사됨!";
+      button.classList.add("copy-success");
+      
+      setTimeout(() => {
+        textElement.textContent = originalText;
+        button.className = originalClass;
+      }, 2000);
+    }
+
+    function showXLSXSuccess(button, textElement) {
+      const originalText = textElement.textContent;
+      const originalClass = button.className;
+      
+      textElement.textContent = "✅ XLSX 생성됨!";
+      button.classList.add("copy-success");
+      
+      setTimeout(() => {
+        textElement.textContent = originalText;
+        button.className = originalClass;
+      }, 2000);
+    }
+
+    function showShareSuccess(button, textElement) {
+      const originalText = textElement.textContent;
+      const originalClass = button.className;
+      
+      textElement.textContent = "✅ 공유됨!";
+      button.classList.add("copy-success");
+      
+      setTimeout(() => {
+        textElement.textContent = originalText;
+        button.className = originalClass;
+      }, 2000);
+    }
+
     async function ensureXLSX() {
       if (window.XLSX) return true;
       return new Promise((resolve) => {
@@ -167,8 +413,7 @@
       });
     }
 
-    // ===== 상수 & 유틸 =====
-    const STORAGE_KEY = 'gcoo.parts-selector.v3';
+    const STORAGE_KEY = 'parts-selector.v3';
     const COMMON_TAG = "공용";
     const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명","품목","제품명"];
     const TAG_HEADERS  = ["category","cat","tag","tags","카테고리","분류","태그"];
@@ -208,21 +453,17 @@
       return Array.from(new Set(arr));
     }
 
-    // ===== 상태 =====
-    // parts: { id, tags, groupTags, name, normName }
     let parts = [];
-    let selected = {};          // 현재 활성 기기의 선택
-    let activeCategory = null;  // 그룹 태그 기준(킥보드/자전거/공용)
+    let selected = {};          
+    let activeCategory = null;  
     let query = "";
     let lastFileName = "";
     let lastSheetName = "";
     let mapState = { tagIdx: 0, nameIdx: 1, hasHeader: true };
 
-    // 일련번호(기기) 상태: [{ id, selected: {}, used: boolean }]
     let devices = [];
     let activeDeviceId = null;
 
-    // ===== 로컬 스토리지 =====
     function saveState() {
       try {
         const payload = {
@@ -250,6 +491,7 @@
             tags,
             groupTags,
             name: stripBracketPrefix(p.name || ""),
+            originalName: p.originalName || p.name || "",
             normName: p.normName || normKR(p.name || "")
           };
         });
@@ -283,7 +525,6 @@
       if (el) el.textContent = text || "";
     }
 
-    // ===== 태그/필터(그룹 기준) =====
     function buildCategories() {
       const set = new Set();
       parts.forEach(p => {
@@ -295,15 +536,25 @@
 
     function getFiltered() {
       const qn = normKR(query);
+      const isChosung = /^[ㄱ-ㅎ\s]+$/.test(query.trim());
+      
       return parts.filter(p => {
         const gs = Array.isArray(p.groupTags) ? p.groupTags : (Array.isArray(p.tags) ? p.tags.map(mapTagToGroup) : []);
         const catOk = !activeCategory || gs.includes(activeCategory) || gs.includes(COMMON_TAG);
-        const txtOk = !qn || p.normName.includes(qn);
+        
+        let txtOk = true;
+        if (query.trim()) {
+          if (isChosung) {
+            txtOk = matchesChosung(p.name, query.trim());
+          } else {
+            txtOk = p.normName.includes(qn);
+          }
+        }
+        
         return catOk && txtOk;
       });
     }
 
-    // ===== 기기(일련번호) 관리 =====
     function sanitizeDeviceId(raw) {
       const s = String(raw || '').trim();
       return s.replace(/[.,;]+$/g, '');
@@ -438,7 +689,6 @@
       updateUsageButtons();
     }
 
-    // ===== 렌더링(리스트/선택/출력) =====
     function renderCategoryBar() {
       const bar = $("#category-bar");
       bar.innerHTML = "";
@@ -489,6 +739,7 @@
         empty.textContent = "엑셀 파일을 업로드하세요.";
         container.appendChild(empty);
         $("#count").textContent = "(0)";
+        $("#search-info").textContent = "";
         renderSelectedChips();
         renderOutput();
         return;
@@ -496,6 +747,16 @@
 
       const filtered = getFiltered();
       $("#count").textContent = `(${filtered.length})`;
+      
+      const searchInfo = $("#search-info");
+      if (query.trim()) {
+        const isChosung = /^[ㄱ-ㅎ\s]+$/.test(query.trim());
+        searchInfo.textContent = isChosung ? 
+          `초성 검색: "${query}" → ${filtered.length}건` : 
+          `검색: "${query}" → ${filtered.length}건`;
+      } else {
+        searchInfo.textContent = "";
+      }
 
       if (filtered.length === 0) {
         const none = document.createElement("div");
@@ -548,10 +809,10 @@
 
         const nameSpan = document.createElement("span");
         nameSpan.className = "whitespace-normal break-words";
-        nameSpan.textContent = p.name;
+        nameSpan.innerHTML = highlightText(p.name, query.trim());
         infoInner.appendChild(nameSpan);
 
-        infoWrap.addEventListener("click", () => { toggleSelectionById(p.id, li, cb); });
+        infoWrap.addEventListener("click", () => toggleSelectionById(p.id, li, cb));
         infoWrap.appendChild(infoInner);
 
         const qtyWrap = document.createElement("div");
@@ -638,7 +899,6 @@
       });
     }
 
-    // 현재 기기 메모 출력(내부 공백 제거)
     function renderOutput() {
       const out = $("#output");
       const usedState = (function(){
@@ -660,10 +920,11 @@
         tokens.push(q === 1 ? `${p.name}` : `${p.name}x${q}`);
       });
       out.value = tokens.join(",").replace(/\s+/g, "");
-      $("#copy-btn").disabled = out.value.length === 0;
+      
+      const hasSelection = tokens.length > 0;
+      $("#copy-btn").disabled = !hasSelection;
     }
 
-    // ===== 전체 로그(헤더 없음 / 공백 규칙 적용) =====
     function buildAllLogs() {
       if (!Array.isArray(devices) || devices.length === 0) return "";
 
@@ -704,7 +965,7 @@
       if (!text.trim()) { alert("복사할 로그가 없습니다."); return; }
       try {
         await navigator.clipboard.writeText(text);
-        alert("전체 로그가 복사되었습니다!");
+        showCopySuccess($("#copy-all-log-btn"), $("#copy-all-log-btn-text"));
       } catch (e) {
         alert("복사에 실패했어요. 수동으로 복사해 주세요.\n\n" + text);
       }
@@ -725,7 +986,6 @@
       alert("등록된 모든 기기를 삭제했습니다.");
     }
 
-    // ===== 파일/시트 처리 =====
     function pickFirstNonEmptySheet(wb) {
       for (const name of wb.SheetNames) {
         const ws = wb.Sheets[name];
@@ -758,28 +1018,36 @@
       return { tagIdx, nameIdx, hasHeader, colMax };
     }
 
-    function parseRows(rows, tagIdx, nameIdx, hasHeader) {
-      const start = hasHeader ? 1 : 0;
-      const parsed = [];
-      let skipped = 0;
-      for (let r = start; r < rows.length; r++) {
-        const row = rows[r] || [];
-        let cat = tagIdx >= 0 ? String(row[tagIdx] ?? "").trim() : "";
-        let nameRaw = String(row[nameIdx] ?? "").trim();
-        if (!cat && !nameRaw) { skipped++; continue; }
-        if (!cat) {
-          const legacy = parseBracketed(nameRaw);
-          if (legacy) { cat = legacy.category; nameRaw = legacy.name; }
-        }
-        const tags = splitTags(cat || "기타");
-        const name = stripBracketPrefix(nameRaw);
-        if (!name) { skipped++; continue; }
-        const id = `${name}||${tags.slice().sort().join('/')}`;
-        const groupTags = tags.map(mapTagToGroup);
-        parsed.push({ id, tags, groupTags, name, normName: normKR(name) });
-      }
-      return { parsed, skipped };
+function parseRows(rows, tagIdx, nameIdx, hasHeader) {
+  const start = hasHeader ? 1 : 0;
+  const parsed = [];
+  let skipped = 0;
+  for (let r = start; r < rows.length; r++) {
+    const row = rows[r] || [];
+    let cat = tagIdx >= 0 ? String(row[tagIdx] ?? "").trim() : "";
+    let nameRaw = String(row[nameIdx] ?? "").trim();
+    
+    const originalName = nameRaw;  // ⭐ 원본 B열 값을 먼저 저장!
+    
+    if (!cat && !nameRaw) { skipped++; continue; }
+    if (!cat) {
+      const legacy = parseBracketed(nameRaw);
+      if (legacy) { cat = legacy.category; nameRaw = legacy.name; }
     }
+    const tags = splitTags(cat || "기타");
+    const name = stripBracketPrefix(nameRaw);
+    if (!name) { skipped++; continue; }
+    const id = `${name}||${tags.slice().sort().join('/')}`;
+    const groupTags = tags.map(mapTagToGroup);
+    parsed.push({ 
+      id, tags, groupTags, 
+      name,
+      originalName,  // ⭐ 원본 값 저장
+      normName: normKR(name) 
+    });
+  }
+  return { parsed, skipped };
+}
 
     function bestEffortParse(rows) {
       const sugg = suggestMapping(rows);
@@ -805,7 +1073,6 @@
       return { parsed: [], mapping: null };
     }
 
-    // ===== 수동 매핑 패널 표시(추가) =====
     function showMappingPanel(rows, suggestion) {
       const panel = $("#mapping-panel");
       const tagSel = $("#map-tag-col");
@@ -852,6 +1119,8 @@
         preview.textContent = lines.length ? lines.join("\n") : "(데이터 미리보기 없음)";
         mapState = { tagIdx: tIdx, nameIdx: nIdx, hasHeader: hasH };
       };
+      
+      [tagSel, nameSel, headerCb].forEach(el => el.addEventListener('change', updatePreview));
       updatePreview();
 
       $("#map-apply").onclick = () => {
@@ -878,7 +1147,6 @@
       panel.classList.remove("hidden");
     }
 
-    // ===== 파일 업로드 파이프라인(추가) =====
     async function processFile(file) {
       setStatus("");
       const ext = (file.name.split(".").pop() || "").toLowerCase();
@@ -938,7 +1206,6 @@
       reader.readAsArrayBuffer(file);
     }
 
-    // ===== 이벤트 =====
     $("#device-add-btn").addEventListener("click", ()=>{
       const raw = $("#device-input").value || "";
       const tokens = raw.split(/[\s,]+/).map(s=>sanitizeDeviceId(s)).filter(Boolean);
@@ -953,16 +1220,30 @@
     $("#usage-used").addEventListener("click", ()=>{
       if (!activeDeviceId) return;
       const cur = devices.find(x => x.id === activeDeviceId); if (!cur) return;
-      cur.used = true; saveState(); renderDevices(); renderOutput();
+      cur.used = true; 
+      saveState(); renderDevices(); renderOutput();
     });
     $("#usage-unused").addEventListener("click", ()=>{
       if (!activeDeviceId) return;
       if (hasActiveSelection()) return;
       const cur = devices.find(x => x.id === activeDeviceId); if (!cur) return;
-      cur.used = false; saveState(); renderDevices(); renderOutput();
+      cur.used = false; 
+      saveState(); renderDevices(); renderOutput();
     });
 
     $("#copy-all-log-btn").addEventListener("click", copyAllLogs);
+    $("#xlsx-all-btn").addEventListener("click", async () => {
+      const success = generateAllDevicesXLSX();
+      if (success) {
+        showXLSXSuccess($("#xlsx-all-btn"), $("#xlsx-all-btn-text"));
+      }
+    });
+    $("#share-xlsx-btn").addEventListener("click", async () => {
+      const success = await shareXLSXFile();
+      if (success) {
+        showShareSuccess($("#share-xlsx-btn"), $("#share-xlsx-btn-text"));
+      }
+    });
     $("#delete-all-devices-btn").addEventListener("click", deleteAllDevices);
 
     $("#search").addEventListener("input", (e) => {
@@ -1001,13 +1282,12 @@
     $("#copy-btn").addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText($("#output").value);
-        alert("복사되었습니다!");
+        showCopySuccess($("#copy-btn"), $("#copy-btn-text"));
       } catch (e) {
         alert("복사에 실패했어요. 수동으로 복사해 주세요.");
       }
     });
 
-    // 드래그&드롭
     const dz = $("#dropzone");
     ["dragenter", "dragover", "dragleave", "drop"].forEach(evt =>
       dz.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); })
@@ -1029,11 +1309,11 @@
       e.target.value = "";
     });
 
-    // 초기 로드
     const restored = loadState();
     if (restored) {
       const more = lastSheetName ? ` • ${lastSheetName}` : "";
       updateFileInfo(`${lastFileName ? `${lastFileName}${more} (저장됨)` : "저장된 데이터"} • 총 ${parts.length}건`);
+      $("#search").value = query || "";
     }
     renderDevices(); renderCategoryBar(); renderList(); renderSelectedChips(); renderOutput();
 
