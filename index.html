@@ -275,7 +275,7 @@
           const n = Number(qty) || 0;
           memoTokens.push(n <= 1 ? base : `${base}x${n}`);
         });
-        const memo = memoTokens.length > 0 ? `${memoTokens.join(",")} 교체` : '';
+        const memo = memoTokens.length > 0 ? `${memoTokens.join(",")}` : '';
 
         let isFirstPart = true;
         entries.forEach(([pid, qty]) => {
@@ -352,7 +352,7 @@
         
         await navigator.share({
           title: '전체 기기 부품 사용내역',
-          text: `/${currentDate}/부품 사용내역 입니다.`,
+          text: `${currentDate}부품 사용내역 입니다.`,
           files: [file]
         });
         return true;
@@ -954,7 +954,7 @@
           const n = Number(qty) || 0;
           tokens.push(n <= 1 ? base : `${base}x${n}`);
         }
-        if (tokens.length) lines.push(`${d.id} ${tokens.join(",")} 교체`);
+        if (tokens.length) lines.push(`${d.id} ${tokens.join(",")}`);
       }
 
       return lines.join("\n");
