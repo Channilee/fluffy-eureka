@@ -50,6 +50,11 @@
         <button id="reset-btn" class="rounded-2xl px-3 py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700">
           데이터 초기화
         </button>
+        <button id="delete-all-devices-btn"
+                class="rounded-2xl px-3 py-2 bg-red-700 hover:bg-red-600 border border-red-600"
+                title="등록된 모든 기기를 삭제합니다. 되돌릴 수 없습니다.">
+          등록된 기기 전체 삭제
+        </button>
         <span id="file-info" class="text-xs text-neutral-400">엑셀(.xlsx, .xls) 파일을 업로드하세요.</span>
       </div>
 
@@ -62,16 +67,9 @@
           <div class="flex items-center gap-2">
             <h3 class="font-semibold">기기(일련번호) 관리</h3>
           </div>
-          <div class="flex items-center gap-3">
-            <div class="flex items-center gap-2">
-              <span class="text-xs text-neutral-400">활성 기기: </span>
-              <span id="active-device-label" class="text-xs text-indigo-300">없음</span>
-            </div>
-            <button id="delete-all-devices-btn"
-                    class="btn bg-red-700 hover:bg-red-600 border border-red-600"
-                    title="등록된 모든 기기를 삭제합니다. 되돌릴 수 없습니다.">
-              등록된 기기 전체 삭제
-            </button>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-neutral-400">활성 기기: </span>
+            <span id="active-device-label" class="text-xs text-indigo-300">없음</span>
           </div>
         </div>
 
@@ -275,7 +273,7 @@
           const n = Number(qty) || 0;
           memoTokens.push(n <= 1 ? base : `${base}x${n}`);
         });
-        const memo = memoTokens.length > 0 ? `${memoTokens.join(",")} 교체` : '';
+        const memo = memoTokens.length > 0 ? memoTokens.join(",") : '';
 
         let isFirstPart = true;
         entries.forEach(([pid, qty]) => {
@@ -879,10 +877,23 @@
       items.forEach(p => {
         const chip = document.createElement("div");
         chip.className = "flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-full pl-3 pr-2 py-1";
+        
+        const labelContainer = document.createElement("div");
+        labelContainer.className = "flex items-center gap-1";
+        
+        p.tags.forEach(t => {
+          const tagChip = document.createElement("span");
+          tagChip.className = "text-[10px] px-1.5 py-0.5 rounded-full bg-neutral-700 text-neutral-300 whitespace-nowrap";
+          tagChip.textContent = `[${t}]`;
+          labelContainer.appendChild(tagChip);
+        });
+        
         const label = document.createElement("span");
         label.className = "text-sm";
         const q = selected[p.id];
         label.textContent = q === 1 ? p.name : `${p.name}×${q}`;
+        labelContainer.appendChild(label);
+        
         const btn = document.createElement("button");
         btn.className = "rounded-full px-2 py-1 hover:bg-neutral-800";
         btn.title = "제거";
@@ -894,7 +905,7 @@
           renderOutput();
           syncSelectedToActiveDevice();
         });
-        chip.append(label, btn);
+        chip.append(labelContainer, btn);
         box.appendChild(chip);
       });
     }
@@ -1018,36 +1029,36 @@
       return { tagIdx, nameIdx, hasHeader, colMax };
     }
 
-function parseRows(rows, tagIdx, nameIdx, hasHeader) {
-  const start = hasHeader ? 1 : 0;
-  const parsed = [];
-  let skipped = 0;
-  for (let r = start; r < rows.length; r++) {
-    const row = rows[r] || [];
-    let cat = tagIdx >= 0 ? String(row[tagIdx] ?? "").trim() : "";
-    let nameRaw = String(row[nameIdx] ?? "").trim();
-    
-    const originalName = nameRaw;  // ⭐ 원본 B열 값을 먼저 저장!
-    
-    if (!cat && !nameRaw) { skipped++; continue; }
-    if (!cat) {
-      const legacy = parseBracketed(nameRaw);
-      if (legacy) { cat = legacy.category; nameRaw = legacy.name; }
+    function parseRows(rows, tagIdx, nameIdx, hasHeader) {
+      const start = hasHeader ? 1 : 0;
+      const parsed = [];
+      let skipped = 0;
+      for (let r = start; r < rows.length; r++) {
+        const row = rows[r] || [];
+        let cat = tagIdx >= 0 ? String(row[tagIdx] ?? "").trim() : "";
+        let nameRaw = String(row[nameIdx] ?? "").trim();
+        
+        const originalName = nameRaw;
+        
+        if (!cat && !nameRaw) { skipped++; continue; }
+        if (!cat) {
+          const legacy = parseBracketed(nameRaw);
+          if (legacy) { cat = legacy.category; nameRaw = legacy.name; }
+        }
+        const tags = splitTags(cat || "기타");
+        const name = stripBracketPrefix(nameRaw);
+        if (!name) { skipped++; continue; }
+        const id = `${name}||${tags.slice().sort().join('/')}`;
+        const groupTags = tags.map(mapTagToGroup);
+        parsed.push({ 
+          id, tags, groupTags, 
+          name,
+          originalName,
+          normName: normKR(name) 
+        });
+      }
+      return { parsed, skipped };
     }
-    const tags = splitTags(cat || "기타");
-    const name = stripBracketPrefix(nameRaw);
-    if (!name) { skipped++; continue; }
-    const id = `${name}||${tags.slice().sort().join('/')}`;
-    const groupTags = tags.map(mapTagToGroup);
-    parsed.push({ 
-      id, tags, groupTags, 
-      name,
-      originalName,  // ⭐ 원본 값 저장
-      normName: normKR(name) 
-    });
-  }
-  return { parsed, skipped };
-}
 
     function bestEffortParse(rows) {
       const sugg = suggestMapping(rows);
