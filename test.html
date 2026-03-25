@@ -102,6 +102,7 @@
             <button id="usage-used" class="text-sm">부품 사용</button>
             <button id="usage-unused" class="text-sm" title="선택된 부품이 있으면 비활성화됩니다">장력조정</button>
           </div>
+          <button id="s-tag-btn" class="rounded-full px-3 py-1 text-sm border" title="활성화하면 XLSX 메모 앞에 [S] 태그가 추가됩니다">[S]</button>
         </div>
       </div>
 
@@ -238,6 +239,33 @@
 
     let lastGeneratedXLSX = null;
 
+    function generateMemoWithLimit(entries, sTag = false) {
+      const maxLength = 200;
+      let memoTokens = [];
+      
+      for (const [pid, qty] of entries) {
+        const part = parts.find(x => x.id === pid);
+        if (!part) continue;
+        
+        const base = part.name.replace(/\s+/g, "");
+        const n = Number(qty) || 0;
+        const token = n <= 1 ? base : `${base}${n}`;
+        
+        const testMemo = sTag ? `[S]${[...memoTokens, token].join(",")}` : [...memoTokens, token].join(",");
+        
+        if (testMemo.length <= maxLength) {
+          memoTokens.push(token);
+        } else {
+          break;
+        }
+      }
+      
+      let finalMemo = memoTokens.join(",");
+      if (sTag) finalMemo = `[S]${finalMemo}`;
+      
+      return finalMemo;
+    }
+
     function generateAllDevicesXLSX() {
       if (!Array.isArray(devices) || devices.length === 0) {
         alert('출력할 기기가 없습니다.');
@@ -265,15 +293,7 @@
         const entries = Object.entries(device.selected || {}).filter(([,q]) => Number(q) > 0);
         if (!entries.length) return;
 
-        const memoTokens = [];
-        entries.forEach(([pid, qty]) => {
-          const part = parts.find(x => x.id === pid);
-          if (!part) return;
-          const base = part.name.replace(/\s+/g, "");
-          const n = Number(qty) || 0;
-          memoTokens.push(n <= 1 ? base : `${base}x${n}`);
-        });
-        const memo = memoTokens.length > 0 ? memoTokens.join(",") : '';
+        const memo = generateMemoWithLimit(entries, device.sTag || false);
 
         let isFirstPart = true;
         entries.forEach(([pid, qty]) => {
@@ -503,7 +523,8 @@
         devices = Array.isArray(data.devices) ? data.devices.map(d => ({
           id: d.id,
           selected: d.selected || {},
-          used: typeof d.used === 'boolean' ? d.used : true
+          used: typeof d.used === 'boolean' ? d.used : true,
+          sTag: typeof d.sTag === 'boolean' ? d.sTag : false
         })) : [];
         activeDeviceId = data.activeDeviceId || null;
 
@@ -562,7 +583,7 @@
       if (!id) return null;
       let d = devices.find(x => x.id === id);
       if (!d) {
-        d = { id, selected: {}, used: true };
+        d = { id, selected: {}, used: true, sTag: false };
         devices.push(d);
       }
       return d;
@@ -580,6 +601,7 @@
       renderList();
       renderSelectedChips();
       renderOutput();
+      updateSTagButton();
     }
     function removeDevice(id) {
       const idx = devices.findIndex(x => x.id === id);
@@ -593,6 +615,7 @@
       renderList();
       renderSelectedChips();
       renderOutput();
+      updateSTagButton();
     }
     function syncSelectedToActiveDevice() {
       if (!activeDeviceId) return;
@@ -633,6 +656,29 @@
       }
     }
 
+    function updateSTagButton() {
+      const sTagBtn = $("#s-tag-btn");
+      const hasActive = !!activeDeviceId;
+      
+      sTagBtn.disabled = !hasActive;
+      sTagBtn.classList.toggle("opacity-50", !hasActive);
+      sTagBtn.classList.toggle("cursor-not-allowed", !hasActive);
+      
+      if (hasActive) {
+        const cur = devices.find(x => x.id === activeDeviceId);
+        if (cur && cur.sTag) {
+          sTagBtn.classList.add("bg-green-600", "border-green-500");
+          sTagBtn.classList.remove("bg-neutral-900", "border-neutral-700");
+        } else {
+          sTagBtn.classList.add("bg-neutral-900", "border-neutral-700");
+          sTagBtn.classList.remove("bg-green-600", "border-green-500");
+        }
+      } else {
+        sTagBtn.classList.add("bg-neutral-900", "border-neutral-700");
+        sTagBtn.classList.remove("bg-green-600", "border-green-500");
+      }
+    }
+
     function renderDevices() {
       const chips = $("#device-chips");
       chips.innerHTML = "";
@@ -660,8 +706,10 @@
 
           const btn = document.createElement("button");
           btn.className = "px-2";
-          btn.textContent = count ? `${d.id}(${count})` : d.id;
-          btn.title = d.used ? "부품 사용" : "장력조정";
+          let displayText = count ? `${d.id}(${count})` : d.id;
+          if (d.sTag) displayText = `[S]${displayText}`;
+          btn.textContent = displayText;
+          btn.title = `${d.used ? "부품 사용" : "장력조정"}${d.sTag ? " • [S] 태그 활성" : ""}`;
           btn.addEventListener("click", ()=> switchActiveDevice(d.id));
 
           const del = document.createElement("button");
@@ -685,6 +733,7 @@
         else unusedBtn.classList.add("active");
       }
       updateUsageButtons();
+      updateSTagButton();
     }
 
     function renderCategoryBar() {
@@ -1240,6 +1289,16 @@
       const cur = devices.find(x => x.id === activeDeviceId); if (!cur) return;
       cur.used = false; 
       saveState(); renderDevices(); renderOutput();
+    });
+
+    $("#s-tag-btn").addEventListener("click", ()=>{
+      if (!activeDeviceId) return;
+      const cur = devices.find(x => x.id === activeDeviceId);
+      if (!cur) return;
+      cur.sTag = !cur.sTag;
+      saveState();
+      renderDevices();
+      updateSTagButton();
     });
 
     $("#copy-all-log-btn").addEventListener("click", copyAllLogs);
