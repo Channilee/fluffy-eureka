@@ -281,8 +281,7 @@
     }
 
     let lastGeneratedXLSX = null;
-
-    function generateMemoWithLimit(entries, activeTags = []) {
+function generateMemoWithLimit(entries, activeTags = []) {
   const maxLength = 200;
   let memoTokens = [];
   
@@ -294,17 +293,20 @@
     const n = Number(qty) || 0;
     const token = n <= 1 ? base : `${base}${n}`;
     
-    // 태그 처리: S는 [S], 나머지는 슬래시 형태
+    // 태그 프리픽스 생성 (S는 [S], 나머지는 슬래시 형태)
     let tagPrefix = '';
     if (activeTags.length > 0) {
-      const sTags = activeTags.filter(t => t === 'S').map(t => `[${t}]`);
+      const sTags = activeTags.filter(t => t === 'S');
       const slashTags = activeTags.filter(t => t !== 'S');
       
-      if (slashTags.length > 0) {
-        tagPrefix = sTags.join('') + slashTags.join(',') + '/';
-      } else {
-        tagPrefix = sTags.join('');
+      let prefix = '';
+      if (sTags.length > 0) {
+        prefix += '[S]';
       }
+      if (slashTags.length > 0) {
+        prefix += slashTags.join(',') + '/';
+      }
+      tagPrefix = prefix;
     }
     
     const testMemo = `${tagPrefix}${[...memoTokens, token].join(",")}`;
@@ -316,20 +318,28 @@
     }
   }
   
+  // 최종 메모 생성
   let finalMemo = memoTokens.join(",");
   if (activeTags.length > 0) {
-    const sTags = activeTags.filter(t => t === 'S').map(t => `[${t}]`);
+    const sTags = activeTags.filter(t => t === 'S');
     const slashTags = activeTags.filter(t => t !== 'S');
     
+    let prefix = '';
+    if (sTags.length > 0) {
+      prefix += '[S]';
+    }
     if (slashTags.length > 0) {
-      finalMemo = sTags.join('') + slashTags.join(',') + '/' + finalMemo;
-    } else {
-      finalMemo = sTags.join('') + finalMemo;
+      prefix += slashTags.join(',') + '/';
+    }
+    
+    if (prefix) {
+      finalMemo = prefix + finalMemo;
     }
   }
   
   return finalMemo;
 }
+
 
     function generateAllDevicesXLSX() {
       if (!Array.isArray(devices) || devices.length === 0) {
