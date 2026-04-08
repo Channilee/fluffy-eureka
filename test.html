@@ -37,6 +37,15 @@
     textarea {
       font-size: 16px;
     }
+
+    .tag-btn {
+      transition: all 0.2s ease;
+    }
+    .tag-btn.active {
+      background-color: #10b981 !important;
+      border-color: #059669 !important;
+      color: white;
+    }
   </style>
 </head>
 <body class="min-h-screen bg-neutral-950 text-neutral-100">
@@ -102,7 +111,41 @@
             <button id="usage-used" class="text-sm">부품 사용</button>
             <button id="usage-unused" class="text-sm" title="선택된 부품이 있으면 비활성화됩니다">장력조정</button>
           </div>
-          <button id="s-tag-btn" class="rounded-full px-3 py-1 text-sm border" title="활성화하면 XLSX 메모 앞에 [S] 태그가 추가됩니다">[S]</button>
+        </div>
+
+        <!-- 태그 섹션 -->
+        <div class="mt-3">
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <span class="text-sm text-neutral-300">XLSX 메모 태그</span>
+            <div class="flex items-center gap-2">
+              <button id="add-tag-btn" class="text-xs px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded-lg border" title="새 태그 추가">
+                + 태그 추가
+              </button>
+              <button id="manage-tags-btn" class="text-xs px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded-lg border" title="태그 관리">
+                태그 관리
+              </button>
+            </div>
+          </div>
+          <div id="custom-tags-container" class="flex flex-wrap gap-2 min-h-[32px]"></div>
+        </div>
+
+        <!-- 태그 입력 모달 -->
+        <div id="tag-input-modal" class="hidden mt-3 p-3 border border-neutral-600 rounded-xl bg-neutral-900">
+          <div class="flex items-center gap-2">
+            <input id="tag-input" type="text" placeholder="새 태그 입력 (예: 봉유격)" 
+                   class="flex-1 rounded-lg px-3 py-2 bg-neutral-800 border border-neutral-600 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <button id="tag-save-btn" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg">추가</button>
+            <button id="tag-cancel-btn" class="px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg">취소</button>
+          </div>
+        </div>
+
+        <!-- 태그 관리 모달 -->
+        <div id="tag-manage-modal" class="hidden mt-3 p-3 border border-neutral-600 rounded-xl bg-neutral-900">
+          <div class="mb-3">
+            <h4 class="text-sm font-semibold mb-2">태그 관리</h4>
+            <div id="manage-tags-list" class="space-y-2"></div>
+          </div>
+          <button id="tag-manage-close-btn" class="px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg">닫기</button>
         </div>
       </div>
 
@@ -239,32 +282,54 @@
 
     let lastGeneratedXLSX = null;
 
-    function generateMemoWithLimit(entries, sTag = false) {
-      const maxLength = 200;
-      let memoTokens = [];
+    function generateMemoWithLimit(entries, activeTags = []) {
+  const maxLength = 200;
+  let memoTokens = [];
+  
+  for (const [pid, qty] of entries) {
+    const part = parts.find(x => x.id === pid);
+    if (!part) continue;
+    
+    const base = part.name.replace(/\s+/g, "");
+    const n = Number(qty) || 0;
+    const token = n <= 1 ? base : `${base}${n}`;
+    
+    // 태그 처리: S는 [S], 나머지는 슬래시 형태
+    let tagPrefix = '';
+    if (activeTags.length > 0) {
+      const sTags = activeTags.filter(t => t === 'S').map(t => `[${t}]`);
+      const slashTags = activeTags.filter(t => t !== 'S');
       
-      for (const [pid, qty] of entries) {
-        const part = parts.find(x => x.id === pid);
-        if (!part) continue;
-        
-        const base = part.name.replace(/\s+/g, "");
-        const n = Number(qty) || 0;
-        const token = n <= 1 ? base : `${base}${n}`;
-        
-        const testMemo = sTag ? `[S]${[...memoTokens, token].join(",")}` : [...memoTokens, token].join(",");
-        
-        if (testMemo.length <= maxLength) {
-          memoTokens.push(token);
-        } else {
-          break;
-        }
+      if (slashTags.length > 0) {
+        tagPrefix = sTags.join('') + slashTags.join(',') + '/';
+      } else {
+        tagPrefix = sTags.join('');
       }
-      
-      let finalMemo = memoTokens.join(",");
-      if (sTag) finalMemo = `[S]${finalMemo}`;
-      
-      return finalMemo;
     }
+    
+    const testMemo = `${tagPrefix}${[...memoTokens, token].join(",")}`;
+    
+    if (testMemo.length <= maxLength) {
+      memoTokens.push(token);
+    } else {
+      break;
+    }
+  }
+  
+  let finalMemo = memoTokens.join(",");
+  if (activeTags.length > 0) {
+    const sTags = activeTags.filter(t => t === 'S').map(t => `[${t}]`);
+    const slashTags = activeTags.filter(t => t !== 'S');
+    
+    if (slashTags.length > 0) {
+      finalMemo = sTags.join('') + slashTags.join(',') + '/' + finalMemo;
+    } else {
+      finalMemo = sTags.join('') + finalMemo;
+    }
+  }
+  
+  return finalMemo;
+}
 
     function generateAllDevicesXLSX() {
       if (!Array.isArray(devices) || devices.length === 0) {
@@ -293,7 +358,7 @@
         const entries = Object.entries(device.selected || {}).filter(([,q]) => Number(q) > 0);
         if (!entries.length) return;
 
-        const memo = generateMemoWithLimit(entries, device.sTag || false);
+        const memo = generateMemoWithLimit(entries, device.tags || []);
 
         let isFirstPart = true;
         entries.forEach(([pid, qty]) => {
@@ -431,7 +496,7 @@
       });
     }
 
-    const STORAGE_KEY = 'parts-selector.v3';
+    const STORAGE_KEY = 'parts-selector.v4';  // 버전 업그레이드
     const COMMON_TAG = "공용";
     const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명","품목","제품명"];
     const TAG_HEADERS  = ["category","cat","tag","tags","카테고리","분류","태그"];
@@ -471,6 +536,8 @@
       return Array.from(new Set(arr));
     }
 
+    // 커스텀 태그 시스템
+    let customTags = ["S", "봉유격", "홀가공", "오프라인"]; // 기본 태그들
     let parts = [];
     let selected = {};          
     let activeCategory = null;  
@@ -485,7 +552,8 @@
     function saveState() {
       try {
         const payload = {
-          v: 3,
+          v: 4,
+          customTags, // 커스텀 태그 저장
           parts, selected, activeCategory, query,
           meta: { fileName: lastFileName, sheetName: lastSheetName, mapping: mapState },
           devices, activeDeviceId
@@ -497,10 +565,42 @@
     function loadState() {
       try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return false;
+        if (!raw) {
+          // v3에서 마이그레이션 시도
+          const oldRaw = localStorage.getItem('parts-selector.v3');
+          if (oldRaw) {
+            const oldData = JSON.parse(oldRaw);
+            // 기존 sTag를 tags 배열로 변환
+            if (Array.isArray(oldData.devices)) {
+              oldData.devices = oldData.devices.map(d => ({
+                id: d.id,
+                selected: d.selected || {},
+                used: typeof d.used === 'boolean' ? d.used : true,
+                tags: d.sTag ? ["S"] : [] // sTag를 tags 배열로 변환
+              }));
+            }
+            // 새 형식으로 저장
+            parts = oldData.parts || [];
+            selected = oldData.selected || {};
+            query = oldData.query || "";
+            activeCategory = oldData.activeCategory || null;
+            lastFileName = oldData.meta?.fileName || "";
+            lastSheetName = oldData.meta?.sheetName || "";
+            mapState = oldData.meta?.mapping || mapState;
+            devices = oldData.devices || [];
+            activeDeviceId = oldData.activeDeviceId || null;
+            
+            saveState(); // 새 형식으로 저장
+            return true;
+          }
+          return false;
+        }
+        
         const data = JSON.parse(raw);
         if (!data || !Array.isArray(data.parts)) return false;
 
+        customTags = Array.isArray(data.customTags) ? data.customTags : ["S", "봉유격", "홀가공", "오프라인"];
+        
         parts = data.parts.map(p => {
           const tags = Array.isArray(p.tags) ? p.tags : ["기타"];
           const groupTags = Array.isArray(p.groupTags) && p.groupTags.length ? p.groupTags : tags.map(mapTagToGroup);
@@ -524,7 +624,7 @@
           id: d.id,
           selected: d.selected || {},
           used: typeof d.used === 'boolean' ? d.used : true,
-          sTag: typeof d.sTag === 'boolean' ? d.sTag : false
+          tags: Array.isArray(d.tags) ? d.tags : (d.sTag ? ["S"] : []) // 기존 sTag 호환
         })) : [];
         activeDeviceId = data.activeDeviceId || null;
 
@@ -583,7 +683,7 @@
       if (!id) return null;
       let d = devices.find(x => x.id === id);
       if (!d) {
-        d = { id, selected: {}, used: true, sTag: false };
+        d = { id, selected: {}, used: true, tags: [] };
         devices.push(d);
       }
       return d;
@@ -601,7 +701,7 @@
       renderList();
       renderSelectedChips();
       renderOutput();
-      updateSTagButton();
+      renderCustomTags();
     }
     function removeDevice(id) {
       const idx = devices.findIndex(x => x.id === id);
@@ -615,7 +715,7 @@
       renderList();
       renderSelectedChips();
       renderOutput();
-      updateSTagButton();
+      renderCustomTags();
     }
     function syncSelectedToActiveDevice() {
       if (!activeDeviceId) return;
@@ -656,26 +756,147 @@
       }
     }
 
-    function updateSTagButton() {
-      const sTagBtn = $("#s-tag-btn");
-      const hasActive = !!activeDeviceId;
+    function renderCustomTags() {
+      const container = $("#custom-tags-container");
+      container.innerHTML = "";
       
-      sTagBtn.disabled = !hasActive;
-      sTagBtn.classList.toggle("opacity-50", !hasActive);
-      sTagBtn.classList.toggle("cursor-not-allowed", !hasActive);
+      if (!activeDeviceId) {
+        const span = document.createElement("span");
+        span.className = "text-neutral-500 text-sm";
+        span.textContent = "활성 기기를 선택하세요.";
+        container.appendChild(span);
+        return;
+      }
       
-      if (hasActive) {
-        const cur = devices.find(x => x.id === activeDeviceId);
-        if (cur && cur.sTag) {
-          sTagBtn.classList.add("bg-green-600", "border-green-500");
-          sTagBtn.classList.remove("bg-neutral-900", "border-neutral-700");
-        } else {
-          sTagBtn.classList.add("bg-neutral-900", "border-neutral-700");
-          sTagBtn.classList.remove("bg-green-600", "border-green-500");
-        }
+      const currentDevice = devices.find(x => x.id === activeDeviceId);
+      if (!currentDevice) return;
+      
+      customTags.forEach(tag => {
+        const isActive = currentDevice.tags && currentDevice.tags.includes(tag);
+        const btn = document.createElement("button");
+        btn.className = `tag-btn rounded-full px-3 py-1 text-sm border ${
+          isActive ? 'active' : 'bg-neutral-900 border-neutral-700 hover:bg-neutral-800'
+        }`;
+        btn.textContent = `[${tag}]`;
+        btn.title = `${tag} 태그 ${isActive ? '비활성화' : '활성화'}`;
+        btn.addEventListener("click", () => toggleTag(tag));
+        container.appendChild(btn);
+      });
+    }
+
+    function toggleTag(tagName) {
+      if (!activeDeviceId) return;
+      const device = devices.find(x => x.id === activeDeviceId);
+      if (!device) return;
+      
+      if (!device.tags) device.tags = [];
+      
+      const index = device.tags.indexOf(tagName);
+      if (index > -1) {
+        device.tags.splice(index, 1);
       } else {
-        sTagBtn.classList.add("bg-neutral-900", "border-neutral-700");
-        sTagBtn.classList.remove("bg-green-600", "border-green-500");
+        device.tags.push(tagName);
+      }
+      
+      saveState();
+      renderDevices();
+      renderCustomTags();
+    }
+
+    function addCustomTag() {
+      const input = $("#tag-input");
+      const tagName = input.value.trim();
+      
+      if (!tagName) {
+        alert("태그 이름을 입력해주세요.");
+        return;
+      }
+      
+      if (customTags.includes(tagName)) {
+        alert("이미 존재하는 태그입니다.");
+        return;
+      }
+      
+      customTags.push(tagName);
+      input.value = "";
+      hideTagInputModal();
+      saveState();
+      renderCustomTags();
+      renderTagManageList();
+    }
+
+    function removeCustomTag(tagName) {
+      if (!confirm(`"${tagName}" 태그를 삭제하시겠습니까?\n모든 기기에서 이 태그가 제거됩니다.`)) {
+        return;
+      }
+      
+      // 커스텀 태그 목록에서 제거
+      const index = customTags.indexOf(tagName);
+      if (index > -1) {
+        customTags.splice(index, 1);
+      }
+      
+      // 모든 기기에서 해당 태그 제거
+      devices.forEach(device => {
+        if (device.tags) {
+          const tagIndex = device.tags.indexOf(tagName);
+          if (tagIndex > -1) {
+            device.tags.splice(tagIndex, 1);
+          }
+        }
+      });
+      
+      saveState();
+      renderCustomTags();
+      renderTagManageList();
+      renderDevices();
+    }
+
+    function showTagInputModal() {
+      $("#tag-input-modal").classList.remove("hidden");
+      $("#tag-input").focus();
+    }
+
+    function hideTagInputModal() {
+      $("#tag-input-modal").classList.add("hidden");
+      $("#tag-input").value = "";
+    }
+
+    function showTagManageModal() {
+      $("#tag-manage-modal").classList.remove("hidden");
+      renderTagManageList();
+    }
+
+    function hideTagManageModal() {
+      $("#tag-manage-modal").classList.add("hidden");
+    }
+
+    function renderTagManageList() {
+      const list = $("#manage-tags-list");
+      list.innerHTML = "";
+      
+      customTags.forEach(tag => {
+        const item = document.createElement("div");
+        item.className = "flex items-center justify-between gap-2 p-2 border border-neutral-700 rounded-lg";
+        
+        const tagLabel = document.createElement("span");
+        tagLabel.className = "text-sm";
+        tagLabel.textContent = `[${tag}]`;
+        
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "text-xs px-2 py-1 bg-red-600 hover:bg-red-500 rounded-lg text-white";
+        deleteBtn.textContent = "삭제";
+        deleteBtn.addEventListener("click", () => removeCustomTag(tag));
+        
+        item.append(tagLabel, deleteBtn);
+        list.appendChild(item);
+      });
+      
+      if (customTags.length === 0) {
+        const emptyMsg = document.createElement("div");
+        emptyMsg.className = "text-neutral-500 text-sm text-center py-4";
+        emptyMsg.textContent = "등록된 커스텀 태그가 없습니다.";
+        list.appendChild(emptyMsg);
       }
     }
 
@@ -707,9 +928,18 @@
           const btn = document.createElement("button");
           btn.className = "px-2";
           let displayText = count ? `${d.id}(${count})` : d.id;
-          if (d.sTag) displayText = `[S]${displayText}`;
+          if (d.tags && d.tags.length > 0) {
+            const tagPrefix = d.tags.map(t => `[${t}]`).join('');
+            displayText = `${tagPrefix}${displayText}`;
+          }
           btn.textContent = displayText;
-          btn.title = `${d.used ? "부품 사용" : "장력조정"}${d.sTag ? " • [S] 태그 활성" : ""}`;
+          
+          const tooltipParts = [d.used ? "부품 사용" : "장력조정"];
+          if (d.tags && d.tags.length > 0) {
+            tooltipParts.push(`태그: ${d.tags.join(', ')}`);
+          }
+          btn.title = tooltipParts.join(' • ');
+          
           btn.addEventListener("click", ()=> switchActiveDevice(d.id));
 
           const del = document.createElement("button");
@@ -733,7 +963,6 @@
         else unusedBtn.classList.add("active");
       }
       updateUsageButtons();
-      updateSTagButton();
     }
 
     function renderCategoryBar() {
@@ -1033,8 +1262,13 @@
 
     function deleteAllDevices() {
       if (!devices.length) { alert("삭제할 기기가 없습니다."); return; }
-      const ok = confirm("등록된 모든 기기를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.");
-      if (!ok) return;
+      
+      const ok1 = confirm("등록된 모든 기기를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.");
+      if (!ok1) return;
+      
+      const ok2 = confirm("정말로 삭제하시겠습니까?");
+      if (!ok2) return;
+      
       devices = [];
       activeDeviceId = null;
       selected = {};
@@ -1043,6 +1277,7 @@
       renderList();
       renderSelectedChips();
       renderOutput();
+      renderCustomTags();
       alert("등록된 모든 기기를 삭제했습니다.");
     }
 
@@ -1266,6 +1501,7 @@
       reader.readAsArrayBuffer(file);
     }
 
+    // 이벤트 리스너들
     $("#device-add-btn").addEventListener("click", ()=>{
       const raw = $("#device-input").value || "";
       const tokens = raw.split(/[\s,]+/).map(s=>sanitizeDeviceId(s)).filter(Boolean);
@@ -1291,14 +1527,20 @@
       saveState(); renderDevices(); renderOutput();
     });
 
-    $("#s-tag-btn").addEventListener("click", ()=>{
-      if (!activeDeviceId) return;
-      const cur = devices.find(x => x.id === activeDeviceId);
-      if (!cur) return;
-      cur.sTag = !cur.sTag;
-      saveState();
-      renderDevices();
-      updateSTagButton();
+    // 태그 관련 이벤트
+    $("#add-tag-btn").addEventListener("click", showTagInputModal);
+    $("#manage-tags-btn").addEventListener("click", showTagManageModal);
+    $("#tag-save-btn").addEventListener("click", addCustomTag);
+    $("#tag-cancel-btn").addEventListener("click", hideTagInputModal);
+    $("#tag-manage-close-btn").addEventListener("click", hideTagManageModal);
+    
+    $("#tag-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addCustomTag();
+      } else if (e.key === "Escape") {
+        hideTagInputModal();
+      }
     });
 
     $("#copy-all-log-btn").addEventListener("click", copyAllLogs);
@@ -1341,11 +1583,12 @@
       mapState = { tagIdx: 0, nameIdx: 1, hasHeader: true };
       devices = [];
       activeDeviceId = null;
+      customTags = ["S", "봉유격", "홀가공", "오프라인"]; // 기본값으로 리셋
       $("#search").value = "";
       localStorage.removeItem(STORAGE_KEY);
       updateFileInfo("엑셀(.xlsx, .xls) 파일을 업로드하세요.");
       setStatus("");
-      renderDevices(); renderCategoryBar(); renderList(); renderSelectedChips(); renderOutput();
+      renderDevices(); renderCategoryBar(); renderList(); renderSelectedChips(); renderOutput(); renderCustomTags();
       $("#mapping-panel").classList.add("hidden");
     });
 
@@ -1379,13 +1622,14 @@
       e.target.value = "";
     });
 
+    // 초기화
     const restored = loadState();
     if (restored) {
       const more = lastSheetName ? ` • ${lastSheetName}` : "";
       updateFileInfo(`${lastFileName ? `${lastFileName}${more} (저장됨)` : "저장된 데이터"} • 총 ${parts.length}건`);
       $("#search").value = query || "";
     }
-    renderDevices(); renderCategoryBar(); renderList(); renderSelectedChips(); renderOutput();
+    renderDevices(); renderCategoryBar(); renderList(); renderSelectedChips(); renderOutput(); renderCustomTags();
 
     (async () => {
       if (!(await ensureXLSX())) {
