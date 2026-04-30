@@ -129,6 +129,20 @@
           <div id="custom-tags-container" class="flex flex-wrap gap-2 min-h-[32px]"></div>
         </div>
 
+        <!-- 기기 고장증상 섹션 -->
+        <div class="mt-3">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="text-sm text-neutral-300">기기 고장증상</span>
+            <span class="text-xs text-neutral-500">(예: 에러코드, 무동력)</span>
+          </div>
+          <textarea id="device-symptom" placeholder="고장증상을 입력하세요..."
+                    class="w-full h-20 rounded-xl px-3 py-2 bg-neutral-900 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                    disabled></textarea>
+          <div class="text-xs text-neutral-500 mt-1">
+            <span id="symptom-byte-count">0</span>/290 바이트
+          </div>
+        </div>
+
         <!-- 태그 입력 모달 -->
         <div id="tag-input-modal" class="hidden mt-3 p-3 border border-neutral-600 rounded-xl bg-neutral-900">
           <div class="flex items-center gap-2">
@@ -280,66 +294,87 @@
       return `${year}-${month}-${day}`;
     }
 
-    let lastGeneratedXLSX = null;
-function generateMemoWithLimit(entries, activeTags = []) {
-  const maxLength = 200;
-  let memoTokens = [];
-  
-  for (const [pid, qty] of entries) {
-    const part = parts.find(x => x.id === pid);
-    if (!part) continue;
-    
-    const base = part.name.replace(/\s+/g, "");
-    const n = Number(qty) || 0;
-    const token = n <= 1 ? base : `${base}${n}`;
-    
-    // 태그 프리픽스 생성 (S는 [S], 나머지는 슬래시 형태)
-    let tagPrefix = '';
-    if (activeTags.length > 0) {
-      const sTags = activeTags.filter(t => t === 'S');
-      const slashTags = activeTags.filter(t => t !== 'S');
-      
-      let prefix = '';
-      if (sTags.length > 0) {
-        prefix += '[S]';
+    // 바이트 계산 함수 (한글 3바이트, 영문/숫자 1바이트)
+    function getByteLength(str) {
+      let byteLength = 0;
+      for (let i = 0; i < str.length; i++) {
+        const char = str.charAt(i);
+        if (char.match(/[^\x00-\x7F]/)) {
+          byteLength += 3; // 한글 등 유니코드 문자
+        } else {
+          byteLength += 1; // 영문, 숫자, 기호
+        }
       }
-      if (slashTags.length > 0) {
-        prefix += slashTags.join(',') + '/';
-      }
-      tagPrefix = prefix;
+      return byteLength;
     }
-    
-    const testMemo = `${tagPrefix}${[...memoTokens, token].join(",")}`;
-    
-    if (testMemo.length <= maxLength) {
-      memoTokens.push(token);
-    } else {
-      break;
-    }
-  }
-  
-  // 최종 메모 생성
-  let finalMemo = memoTokens.join(",");
-  if (activeTags.length > 0) {
-    const sTags = activeTags.filter(t => t === 'S');
-    const slashTags = activeTags.filter(t => t !== 'S');
-    
-    let prefix = '';
-    if (sTags.length > 0) {
-      prefix += '[S]';
-    }
-    if (slashTags.length > 0) {
-      prefix += slashTags.join(',') + '/';
-    }
-    
-    if (prefix) {
-      finalMemo = prefix + finalMemo;
-    }
-  }
-  
-  return finalMemo;
-}
 
+    // 290바이트 제한으로 문자열 자르기 (부품명 온전히 출력)
+    function truncateToByteLimit(text, maxBytes = 290) {
+      if (getByteLength(text) <= maxBytes) {
+        return text;
+      }
+      
+      // 쉼표로 분할된 부품들을 하나씩 확인
+      const parts = text.split(',');
+      const result = [];
+      let currentBytes = 0;
+      
+      for (const part of parts) {
+        const partWithComma = result.length > 0 ? ',' + part : part;
+        const partBytes = getByteLength(partWithComma);
+        
+        if (currentBytes + partBytes <= maxBytes) {
+          result.push(part);
+          currentBytes += partBytes;
+        } else {
+          break; // 이 부품을 추가하면 290바이트 초과
+        }
+      }
+      
+      return result.join(',');
+    }
+
+    let lastGeneratedXLSX = null;
+
+    function generateMemoWithLimit(entries, activeTags = []) {
+      const maxBytes = 290;
+      let memoTokens = [];
+      
+      // 태그 프리픽스 생성
+      let tagPrefix = '';
+      if (activeTags.length > 0) {
+        const sTags = activeTags.filter(t => t === 'S');
+        const slashTags = activeTags.filter(t => t !== 'S');
+        
+        if (sTags.length > 0) {
+          tagPrefix += '[S]';
+        }
+        if (slashTags.length > 0) {
+          tagPrefix += slashTags.join(',') + '/';
+        }
+      }
+      
+      // 부품을 하나씩 추가하면서 바이트 체크
+      for (const [pid, qty] of entries) {
+        const part = parts.find(x => x.id === pid);
+        if (!part) continue;
+        
+        const base = part.name.replace(/\s+/g, "");
+        const n = Number(qty) || 0;
+        const token = n <= 1 ? base : `${base}${n}`;
+        
+        const testTokens = [...memoTokens, token];
+        const testMemo = tagPrefix + testTokens.join(",");
+        
+        if (getByteLength(testMemo) <= maxBytes) {
+          memoTokens.push(token);
+        } else {
+          break; // 이 부품을 추가하면 290바이트 초과
+        }
+      }
+      
+      return tagPrefix + memoTokens.join(",");
+    }
 
     function generateAllDevicesXLSX() {
       if (!Array.isArray(devices) || devices.length === 0) {
@@ -349,7 +384,8 @@ function generateMemoWithLimit(entries, activeTags = []) {
 
       const wsData = [];
       
-      wsData.push(['기기번호', '부품명(필수입력)', '', '수량', '', '', '', '메모']);
+      // 헤더 변경: H열 정비내용, J열 정비메모
+      wsData.push(['기기번호', '부품명(필수입력)', '', '수량', '', '', '', '정비내용', '', '정비메모']);
       
       const sorted = [...devices].sort((a,b) => {
         const na = Number(a.id), nb = Number(b.id);
@@ -357,37 +393,45 @@ function generateMemoWithLimit(entries, activeTags = []) {
         return String(a.id).localeCompare(String(b.id), 'ko');
       });
 
-      sorted.forEach(device => {
+      sorted.forEach((device, deviceIndex) => {
         if (!device) return;
         
         if (device.used === false) {
-          wsData.push([device.id, '장력조정', '', '', '', '', '', '']);
-          return;
+          const repairMemo = truncateToByteLimit(device.symptom || '', 290);
+          wsData.push([device.id, '장력조정', '', '', '', '', '', '', '', repairMemo]);
+        } else {
+          const entries = Object.entries(device.selected || {}).filter(([,q]) => Number(q) > 0);
+          if (entries.length === 0) return;
+
+          const memo = generateMemoWithLimit(entries, device.tags || []);
+          const repairMemo = truncateToByteLimit(device.symptom || '', 290);
+
+          let isFirstPart = true;
+          entries.forEach(([pid, qty]) => {
+            const part = parts.find(x => x.id === pid);
+            if (!part) return;
+            
+            const originalPartName = part.originalName || part.name;
+            
+            wsData.push([
+              isFirstPart ? device.id : '',
+              originalPartName,
+              '',
+              Number(qty),
+              '', '', '',
+              isFirstPart ? memo : '',
+              '',
+              isFirstPart ? repairMemo : ''
+            ]);
+            
+            isFirstPart = false;
+          });
         }
-
-        const entries = Object.entries(device.selected || {}).filter(([,q]) => Number(q) > 0);
-        if (!entries.length) return;
-
-        const memo = generateMemoWithLimit(entries, device.tags || []);
-
-        let isFirstPart = true;
-        entries.forEach(([pid, qty]) => {
-          const part = parts.find(x => x.id === pid);
-          if (!part) return;
-          
-          const originalPartName = part.originalName || part.name;
-          
-          wsData.push([
-            isFirstPart ? device.id : '',
-            originalPartName,
-            '',
-            Number(qty),
-            '', '', '',
-            isFirstPart ? memo : ''
-          ]);
-          
-          isFirstPart = false;
-        });
+        
+        // 기기별 여백 행 추가 (마지막 기기는 제외)
+        if (deviceIndex < sorted.length - 1) {
+          wsData.push(['', '', '', '', '', '', '', '', '', '']);
+        }
       });
 
       if (wsData.length <= 1) {
@@ -397,15 +441,18 @@ function generateMemoWithLimit(entries, activeTags = []) {
 
       const ws = XLSX.utils.aoa_to_sheet(wsData);
       
+      // 컬럼 너비 조정 (J열 추가)
       ws['!cols'] = [
-        { width: 10 },
-        { width: 25 },
-        { width: 5 },
-        { width: 8 },
-        { width: 5 },
-        { width: 5 },
-        { width: 5 },
-        { width: 20 }
+        { width: 10 }, // A: 기기번호
+        { width: 25 }, // B: 부품명
+        { width: 5 },  // C: 공란
+        { width: 8 },  // D: 수량
+        { width: 5 },  // E: 공란
+        { width: 5 },  // F: 공란
+        { width: 5 },  // G: 공란
+        { width: 20 }, // H: 정비내용
+        { width: 5 },  // I: 공란
+        { width: 25 }  // J: 정비메모
       ];
 
       const wb = XLSX.utils.book_new();
@@ -506,7 +553,7 @@ function generateMemoWithLimit(entries, activeTags = []) {
       });
     }
 
-    const STORAGE_KEY = 'parts-selector.v4';  // 버전 업그레이드
+    const STORAGE_KEY = 'parts-selector.v5';  // 버전 업그레이드
     const COMMON_TAG = "공용";
     const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명","품목","제품명"];
     const TAG_HEADERS  = ["category","cat","tag","tags","카테고리","분류","태그"];
@@ -547,7 +594,7 @@ function generateMemoWithLimit(entries, activeTags = []) {
     }
 
     // 커스텀 태그 시스템
-    let customTags = ["S", "봉유격", "홀가공", "오프라인"]; // 기본 태그들
+    let customTags = ["S", "봉유격", "홀가공", "오프라인"];
     let parts = [];
     let selected = {};          
     let activeCategory = null;  
@@ -562,8 +609,8 @@ function generateMemoWithLimit(entries, activeTags = []) {
     function saveState() {
       try {
         const payload = {
-          v: 4,
-          customTags, // 커스텀 태그 저장
+          v: 5,
+          customTags,
           parts, selected, activeCategory, query,
           meta: { fileName: lastFileName, sheetName: lastSheetName, mapping: mapState },
           devices, activeDeviceId
@@ -576,32 +623,37 @@ function generateMemoWithLimit(entries, activeTags = []) {
       try {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (!raw) {
-          // v3에서 마이그레이션 시도
-          const oldRaw = localStorage.getItem('parts-selector.v3');
-          if (oldRaw) {
-            const oldData = JSON.parse(oldRaw);
-            // 기존 sTag를 tags 배열로 변환
-            if (Array.isArray(oldData.devices)) {
-              oldData.devices = oldData.devices.map(d => ({
-                id: d.id,
-                selected: d.selected || {},
-                used: typeof d.used === 'boolean' ? d.used : true,
-                tags: d.sTag ? ["S"] : [] // sTag를 tags 배열로 변환
-              }));
+          // 이전 버전에서 마이그레이션 시도
+          for (let ver = 4; ver >= 3; ver--) {
+            const oldKey = `parts-selector.v${ver}`;
+            const oldRaw = localStorage.getItem(oldKey);
+            if (oldRaw) {
+              const oldData = JSON.parse(oldRaw);
+              // v4/v3 호환성 처리
+              if (Array.isArray(oldData.devices)) {
+                oldData.devices = oldData.devices.map(d => ({
+                  id: d.id,
+                  selected: d.selected || {},
+                  used: typeof d.used === 'boolean' ? d.used : true,
+                  tags: Array.isArray(d.tags) ? d.tags : (d.sTag ? ["S"] : []),
+                  symptom: d.symptom || '' // 고장증상 필드 추가
+                }));
+              }
+              
+              customTags = Array.isArray(oldData.customTags) ? oldData.customTags : ["S", "봉유격", "홀가공", "오프라인"];
+              parts = oldData.parts || [];
+              selected = oldData.selected || {};
+              query = oldData.query || "";
+              activeCategory = oldData.activeCategory || null;
+              lastFileName = oldData.meta?.fileName || "";
+              lastSheetName = oldData.meta?.sheetName || "";
+              mapState = oldData.meta?.mapping || mapState;
+              devices = oldData.devices || [];
+              activeDeviceId = oldData.activeDeviceId || null;
+              
+              saveState(); // v5로 저장
+              return true;
             }
-            // 새 형식으로 저장
-            parts = oldData.parts || [];
-            selected = oldData.selected || {};
-            query = oldData.query || "";
-            activeCategory = oldData.activeCategory || null;
-            lastFileName = oldData.meta?.fileName || "";
-            lastSheetName = oldData.meta?.sheetName || "";
-            mapState = oldData.meta?.mapping || mapState;
-            devices = oldData.devices || [];
-            activeDeviceId = oldData.activeDeviceId || null;
-            
-            saveState(); // 새 형식으로 저장
-            return true;
           }
           return false;
         }
@@ -634,7 +686,8 @@ function generateMemoWithLimit(entries, activeTags = []) {
           id: d.id,
           selected: d.selected || {},
           used: typeof d.used === 'boolean' ? d.used : true,
-          tags: Array.isArray(d.tags) ? d.tags : (d.sTag ? ["S"] : []) // 기존 sTag 호환
+          tags: Array.isArray(d.tags) ? d.tags : (d.sTag ? ["S"] : []),
+          symptom: d.symptom || ''
         })) : [];
         activeDeviceId = data.activeDeviceId || null;
 
@@ -652,6 +705,14 @@ function generateMemoWithLimit(entries, activeTags = []) {
     function updateFileInfo(text) {
       const el = $("#file-info");
       if (el) el.textContent = text || "";
+    }
+
+    function updateSymptomByteCount() {
+      const symptom = $("#device-symptom").value || '';
+      const byteLength = getByteLength(symptom);
+      const counter = $("#symptom-byte-count");
+      counter.textContent = byteLength;
+      counter.className = byteLength > 290 ? 'text-red-400' : 'text-neutral-500';
     }
 
     function buildCategories() {
@@ -693,7 +754,7 @@ function generateMemoWithLimit(entries, activeTags = []) {
       if (!id) return null;
       let d = devices.find(x => x.id === id);
       if (!d) {
-        d = { id, selected: {}, used: true, tags: [] };
+        d = { id, selected: {}, used: true, tags: [], symptom: '' };
         devices.push(d);
       }
       return d;
@@ -701,11 +762,21 @@ function generateMemoWithLimit(entries, activeTags = []) {
     function switchActiveDevice(id) {
       if (activeDeviceId) {
         const prev = devices.find(x => x.id === activeDeviceId);
-        if (prev) prev.selected = { ...selected };
+        if (prev) {
+          prev.selected = { ...selected };
+          prev.symptom = $("#device-symptom").value || '';
+        }
       }
       activeDeviceId = id;
       const cur = devices.find(x => x.id === activeDeviceId);
       selected = cur ? { ...cur.selected } : {};
+      
+      // 고장증상 필드 업데이트
+      const symptomField = $("#device-symptom");
+      symptomField.disabled = !cur;
+      symptomField.value = cur ? (cur.symptom || '') : '';
+      updateSymptomByteCount();
+      
       saveState();
       renderDevices();
       renderList();
@@ -719,6 +790,9 @@ function generateMemoWithLimit(entries, activeTags = []) {
       if (activeDeviceId === id) {
         activeDeviceId = null;
         selected = {};
+        $("#device-symptom").value = '';
+        $("#device-symptom").disabled = true;
+        updateSymptomByteCount();
       }
       saveState();
       renderDevices();
@@ -732,6 +806,7 @@ function generateMemoWithLimit(entries, activeTags = []) {
       const cur = devices.find(x => x.id === activeDeviceId);
       if (!cur) return;
       cur.selected = { ...selected };
+      cur.symptom = $("#device-symptom").value || '';
       saveState();
       renderDevices();
     }
@@ -840,13 +915,11 @@ function generateMemoWithLimit(entries, activeTags = []) {
         return;
       }
       
-      // 커스텀 태그 목록에서 제거
       const index = customTags.indexOf(tagName);
       if (index > -1) {
         customTags.splice(index, 1);
       }
       
-      // 모든 기기에서 해당 태그 제거
       devices.forEach(device => {
         if (device.tags) {
           const tagIndex = device.tags.indexOf(tagName);
@@ -947,6 +1020,9 @@ function generateMemoWithLimit(entries, activeTags = []) {
           const tooltipParts = [d.used ? "부품 사용" : "장력조정"];
           if (d.tags && d.tags.length > 0) {
             tooltipParts.push(`태그: ${d.tags.join(', ')}`);
+          }
+          if (d.symptom) {
+            tooltipParts.push(`증상: ${d.symptom.substring(0, 20)}${d.symptom.length > 20 ? '...' : ''}`);
           }
           btn.title = tooltipParts.join(' • ');
           
@@ -1282,6 +1358,10 @@ function generateMemoWithLimit(entries, activeTags = []) {
       devices = [];
       activeDeviceId = null;
       selected = {};
+      $("#device-symptom").value = '';
+      $("#device-symptom").disabled = true;
+      updateSymptomByteCount();
+      
       saveState();
       renderDevices();
       renderList();
@@ -1537,6 +1617,12 @@ function generateMemoWithLimit(entries, activeTags = []) {
       saveState(); renderDevices(); renderOutput();
     });
 
+    // 고장증상 입력 이벤트
+    $("#device-symptom").addEventListener("input", (e) => {
+      updateSymptomByteCount();
+      syncSelectedToActiveDevice();
+    });
+
     // 태그 관련 이벤트
     $("#add-tag-btn").addEventListener("click", showTagInputModal);
     $("#manage-tags-btn").addEventListener("click", showTagManageModal);
@@ -1593,8 +1679,11 @@ function generateMemoWithLimit(entries, activeTags = []) {
       mapState = { tagIdx: 0, nameIdx: 1, hasHeader: true };
       devices = [];
       activeDeviceId = null;
-      customTags = ["S", "봉유격", "홀가공", "오프라인"]; // 기본값으로 리셋
+      customTags = ["S", "봉유격", "홀가공", "오프라인"];
       $("#search").value = "";
+      $("#device-symptom").value = "";
+      $("#device-symptom").disabled = true;
+      updateSymptomByteCount();
       localStorage.removeItem(STORAGE_KEY);
       updateFileInfo("엑셀(.xlsx, .xls) 파일을 업로드하세요.");
       setStatus("");
@@ -1640,6 +1729,7 @@ function generateMemoWithLimit(entries, activeTags = []) {
       $("#search").value = query || "";
     }
     renderDevices(); renderCategoryBar(); renderList(); renderSelectedChips(); renderOutput(); renderCustomTags();
+    updateSymptomByteCount();
 
     (async () => {
       if (!(await ensureXLSX())) {
