@@ -126,9 +126,10 @@
       white-space: nowrap;
     }
     
+    /* 부품명 텍스트 모바일 최적화 (크기 및 굵기 증가) */
     .part-name {
-      font-size: 0.9375rem;
-      font-weight: 500;
+      font-size: 1.0625rem; 
+      font-weight: 600;
       line-height: 1.4;
       color: #f9fafb;
       word-break: break-word;
@@ -207,8 +208,9 @@
         gap: 0.625rem;
       }
       
+      /* 모바일 화면에서도 기존보다 글씨를 더 크게 유지 */
       .part-name {
-        font-size: 0.875rem;
+        font-size: 1rem;
       }
       
       .part-controls {
@@ -387,7 +389,7 @@
         </div>
       </div>
 
-      <!-- 카테고리 매핑 패널 -->
+      <!-- 카테고 매핑 패널 -->
       <div id="mapping-panel" class="panel p-4 hidden">
         <div class="flex items-center justify-between">
           <h3 class="font-semibold">파일 가져오기 (L열 자동 인식)</h3>
@@ -1596,19 +1598,18 @@
           const buttonsContainer = document.createElement("div");
           buttonsContainer.className = "quantity-buttons";
 
-          // 감소 버튼
+          // 버튼 순서 변경: [ + ] 버튼을 먼저, [ - ] 버튼을 나중에 배치
+          const plusBtn = document.createElement("button");
+          plusBtn.textContent = "+";
+          plusBtn.className = "quantity-btn";
+          plusBtn.addEventListener("click", () => setQty(Number(quantityInput.value) + 1));
+          
           const minusBtn = document.createElement("button");
           minusBtn.textContent = "−";
           minusBtn.className = "quantity-btn";
           minusBtn.addEventListener("click", () => setQty(Math.max(1, Number(quantityInput.value) - 1)));
 
-          // 증가 버튼
-          const plusBtn = document.createElement("button");
-          plusBtn.textContent = "+";
-          plusBtn.className = "quantity-btn";
-          plusBtn.addEventListener("click", () => setQty(Number(quantityInput.value) + 1));
-
-          buttonsContainer.append(minusBtn, plusBtn);
+          buttonsContainer.append(plusBtn, minusBtn); // <--- 수정한 부분 (순서 변경)
           quantitySection.append(quantityInput, buttonsContainer);
 
           controlsSection.appendChild(quantityLabel);
@@ -1993,7 +1994,7 @@
           lastFileName = file.name;
           updateFileInfo(`${file.name} • ${lastSheetName} 로드됨`);
 
-          // L열 검사 (수정 및 복구된 부분!)
+          // L열 검사
           let hasLColumnData = false;
           for (let r = 1; r < rows.length; r++) {
             if (rows[r] && rows[r][11] && String(rows[r][11]).trim() !== "") {
