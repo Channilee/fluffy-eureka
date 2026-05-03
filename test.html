@@ -2,14 +2,33 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-  <title>부품 선택 → 쉼표 데이터 생성기 (일련번호/그룹태그/안정화)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>부품 선택 → 쉼표 데이터 생성기 (일련번호/그룹태그/안정화/최적화)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
+    /* 브라우저별 정규화 */
+    * {
+      -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
+    }
+    
+    input, textarea {
+      -webkit-user-select: text;
+      -moz-user-select: text;
+      -ms-user-select: text;
+      user-select: text;
+    }
+
+    /* 기본 스크롤바 스타일 */
     .custom-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
     .custom-scroll::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 9999px; }
     .custom-scroll::-webkit-scrollbar-track { background: #18181b; }
+    
     .dropzone { border: 2px dashed #3f3f46; border-radius: 16px; }
     .dropzone.dragover { background: rgba(99,102,241,0.08); border-color: #6366f1; }
     .panel { border: 1px solid #262626; border-radius: 16px; background: #0b0b0c; }
@@ -31,8 +50,224 @@
       padding: 0 2px;
     }
     
+    .tag-btn {
+      transition: all 0.2s ease;
+    }
+    .tag-btn.active {
+      background-color: #10b981 !important;
+      border-color: #059669 !important;
+      color: white;
+    }
+
+    .virtual-list {
+      transform: translateZ(0);
+      contain: layout style paint;
+    }
+    
+    /* 모바일 최적화된 부품 아이템 */
+    .part-item {
+      contain: layout;
+      touch-action: manipulation;
+      padding: 1rem;
+      border-radius: 0.75rem;
+      background: #0a0a0b;
+      border: 1px solid #262626;
+      margin-bottom: 0.5rem;
+      transition: all 0.15s ease;
+    }
+    
+    .part-item:active {
+      transform: scale(0.98);
+      background: #111111;
+    }
+    
+    .part-item.selected {
+      border-color: #6366f1;
+      background: rgba(99, 102, 241, 0.05);
+      box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2);
+    }
+    
+    /* 메인 콘텐츠 영역 */
+    .part-main {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+      min-height: 2.75rem;
+    }
+    
+    .part-checkbox {
+      flex-shrink: 0;
+      width: 1.25rem;
+      height: 1.25rem;
+      margin-top: 0.125rem;
+      accent-color: #6366f1;
+    }
+    
+    .part-info {
+      flex: 1;
+      min-width: 0;
+    }
+    
+    .part-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.25rem;
+      margin-bottom: 0.375rem;
+    }
+    
+    .part-tag {
+      font-size: 0.6875rem;
+      padding: 0.125rem 0.375rem;
+      border-radius: 0.25rem;
+      background: #374151;
+      color: #d1d5db;
+      border: 1px solid #4b5563;
+      white-space: nowrap;
+    }
+    
+    .part-name {
+      font-size: 0.9375rem;
+      font-weight: 500;
+      line-height: 1.4;
+      color: #f9fafb;
+      word-break: break-word;
+    }
+    
+    /* 수량 조절 영역 */
+    .part-controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    
+    .quantity-label {
+      font-size: 0.75rem;
+      color: #9ca3af;
+      flex-shrink: 0;
+    }
+    
+    .quantity-input {
+      width: 3.5rem;
+      height: 2rem;
+      border-radius: 0.5rem;
+      border: 1px solid #374151;
+      background: #1f2937;
+      color: #f9fafb;
+      text-align: center;
+      font-size: 0.875rem;
+      -webkit-appearance: none;
+      -moz-appearance: textfield;
+    }
+    
+    .quantity-input::-webkit-outer-spin-button,
+    .quantity-input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    
+    .quantity-buttons {
+      display: flex;
+      gap: 0.5rem;
+    }
+    
+    .quantity-btn {
+      width: 2rem;
+      height: 2rem;
+      border-radius: 0.5rem;
+      background: #374151;
+      border: 1px solid #4b5563;
+      color: #f9fafb;
+      font-size: 1rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: manipulation;
+      transition: all 0.15s ease;
+    }
+    
+    .quantity-btn:hover {
+      background: #4b5563;
+    }
+    
+    .quantity-btn:active {
+      transform: scale(0.95);
+      background: #6b7280;
+    }
+    
+    /* 반응형 미디어 쿼리 */
+    @media (max-width: 640px) {
+      .part-item {
+        padding: 0.875rem;
+      }
+      
+      .part-main {
+        gap: 0.625rem;
+      }
+      
+      .part-name {
+        font-size: 0.875rem;
+      }
+      
+      .part-controls {
+        gap: 0.5rem;
+      }
+      
+      .quantity-input {
+        width: 3rem;
+        font-size: 0.8125rem;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .part-item {
+        padding: 0.75rem;
+      }
+      
+      .part-controls {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+      }
+      
+      .quantity-section {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+      }
+    }
+    
+    /* iOS Safari 호환성 */
+    @supports (-webkit-touch-callout: none) {
+      .part-item {
+        -webkit-transform: translateZ(0);
+      }
+      
+      .quantity-btn {
+        -webkit-appearance: none;
+        border-radius: 0.5rem;
+      }
+    }
+    
+    /* 안드로이드 Chrome 호환성 */
+    @media screen and (-webkit-min-device-pixel-ratio: 0) {
+      .quantity-input {
+        padding: 0.25rem;
+      }
+    }
+    
+    /* 폰트 크기 개선 */
     input[type="text"], input[type="number"], textarea {
-      font-size: 16px;
+      font-size: 1rem; /* iOS 줌 방지 */
+    }
+    
+    @media (max-width: 768px) {
+      input[type="text"], input[type="number"], textarea {
+        font-size: 16px; /* iOS 줌 방지 강화 */
+      }
     }
   </style>
 </head>
@@ -47,6 +282,11 @@
         <button id="reset-btn" class="rounded-2xl px-3 py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700">
           데이터 초기화
         </button>
+        <button id="delete-all-devices-btn"
+                class="rounded-2xl px-3 py-2 bg-red-700 hover:bg-red-600 border border-red-600"
+                title="등록된 모든 기기를 삭제합니다. 되돌릴 수 없습니다.">
+          등록된 기기 전체 삭제
+        </button>
         <span id="file-info" class="text-xs text-neutral-400">엑셀(.xlsx, .xls) 파일을 업로드하세요.</span>
       </div>
 
@@ -59,14 +299,9 @@
           <div class="flex items-center gap-2">
             <h3 class="font-semibold">기기(일련번호) 관리</h3>
           </div>
-          <div class="flex items-center gap-3">
-            <div class="flex items-center gap-2">
-              <span class="text-xs text-neutral-400">활성 기기: </span>
-              <span id="active-device-label" class="text-xs text-indigo-300">없음</span>
-            </div>
-            <button id="delete-all-devices-btn" class="btn bg-red-700 hover:bg-red-600 border border-red-600" title="등록된 모든 기기를 삭제합니다. 되돌릴 수 없습니다.">
-              등록된 기기 전체 삭제
-            </button>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-neutral-400">활성 기기: </span>
+            <span id="active-device-label" class="text-xs text-indigo-300">없음</span>
           </div>
         </div>
 
@@ -100,35 +335,90 @@
             <button id="usage-unused" class="text-sm" title="선택된 부품이 있으면 비활성화됩니다">장력조정</button>
           </div>
         </div>
+
+        <!-- 태그 섹션 -->
+        <div class="mt-3">
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <span class="text-sm text-neutral-300">XLSX 메모 태그</span>
+            <div class="flex items-center gap-2">
+              <button id="add-tag-btn" class="text-xs px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded-lg border" title="새 태그 추가">
+                + 태그 추가
+              </button>
+              <button id="manage-tags-btn" class="text-xs px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded-lg border" title="태그 관리">
+                태그 관리
+              </button>
+            </div>
+          </div>
+          <div id="custom-tags-container" class="flex flex-wrap gap-2 min-h-[32px]"></div>
+        </div>
+
+        <!-- 고장증상 입력 섹션 -->
+        <div class="mt-3">
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <span class="text-sm text-neutral-300">기기 고장증상</span>
+            <span id="symptom-counter" class="text-xs text-neutral-500">0/290 바이트</span>
+          </div>
+          <div id="symptom-section">
+            <textarea id="symptom-input" 
+                      class="w-full h-20 rounded-xl px-3 py-2 bg-neutral-900 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      placeholder="고장 증상을 입력하세요 (예: 에러코드, 무동력)" 
+                      disabled></textarea>
+            <div class="text-xs text-neutral-500 mt-1">활성 기기를 선택하면 고장증상을 입력할 수 있습니다.</div>
+          </div>
+        </div>
+
+        <!-- 태그 입력 모달 -->
+        <div id="tag-input-modal" class="hidden mt-3 p-3 border border-neutral-600 rounded-xl bg-neutral-900">
+          <div class="flex items-center gap-2">
+            <input id="tag-input" type="text" placeholder="새 태그 입력 (예: 봉유격)" 
+                   class="flex-1 rounded-lg px-3 py-2 bg-neutral-800 border border-neutral-600 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <button id="tag-save-btn" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg">추가</button>
+            <button id="tag-cancel-btn" class="px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg">취소</button>
+          </div>
+        </div>
+
+        <!-- 태그 관리 모달 -->
+        <div id="tag-manage-modal" class="hidden mt-3 p-3 border border-neutral-600 rounded-xl bg-neutral-900">
+          <div class="mb-3">
+            <h4 class="text-sm font-semibold mb-2">태그 관리</h4>
+            <div id="manage-tags-list" class="space-y-2"></div>
+          </div>
+          <button id="tag-manage-close-btn" class="px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg">닫기</button>
+        </div>
       </div>
 
+      <!-- 카테고리 매핑 패널 -->
       <div id="mapping-panel" class="panel p-4 hidden">
         <div class="flex items-center justify-between">
-          <h3 class="font-semibold">열 매핑 설정</h3>
+          <h3 class="font-semibold">파일 가져오기 (L열 자동 인식)</h3>
           <span id="mapping-hint" class="text-xs text-neutral-400"></span>
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
-          <div>
-            <label class="text-sm text-neutral-300">태그 열</label>
-            <select id="map-tag-col" class="w-full mt-1 rounded-xl px-3 py-2 bg-neutral-900 border border-neutral-700"></select>
-          </div>
-          <div>
-            <label class="text-sm text-neutral-300">부품명 열</label>
-            <select id="map-name-col" class="w-full mt-1 rounded-xl px-3 py-2 bg-neutral-900 border border-neutral-700"></select>
-          </div>
-          <div class="flex items-end">
-            <label class="inline-flex items-center gap-2 mt-6">
-              <input id="map-has-header" type="checkbox" class="h-5 w-5 accent-indigo-500" />
-              <span class="text-sm">첫 행은 헤더</span>
-            </label>
-          </div>
-        </div>
         <div class="mt-3">
-          <div class="text-sm text-neutral-400 mb-1">미리보기(최대 10행)</div>
+          <div class="text-sm text-neutral-400 mb-1">미리보기 (L열, 2행부터, 최대 10행)</div>
           <div id="map-preview" class="text-sm bg-neutral-900 border border-neutral-800 rounded-xl p-3 max-h-40 overflow-auto"></div>
         </div>
-        <div class="flex items-center gap-2 mt-3">
-          <button id="map-apply" class="rounded-2xl px-4 py-2 bg-indigo-600 hover:bg-indigo-500">적용하기</button>
+
+        <!-- 태그 카테고리 매핑 섹션 -->
+        <div class="mt-4 border-t border-neutral-700 pt-4">
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="text-sm font-semibold">태그 → 카테고리 매핑</h4>
+            <div class="flex gap-2">
+              <button id="auto-map-btn" class="text-xs px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded">
+                자동 매핑
+              </button>
+              <button id="reset-map-btn" class="text-xs px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded">
+                매핑 초기화
+              </button>
+            </div>
+          </div>
+          <div class="text-xs text-neutral-400 mb-3">
+            발견된 태그들을 자전거, 킥보드, 공용으로 분류해주세요.
+          </div>
+          <div id="tag-mapping-list" class="space-y-2 max-h-60 overflow-auto custom-scroll"></div>
+        </div>
+
+        <div class="flex items-center gap-2 mt-4">
+          <button id="map-apply" class="rounded-2xl px-4 py-2 bg-indigo-600 hover:bg-indigo-500">가져오기</button>
           <button id="map-cancel" class="rounded-2xl px-4 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700">취소</button>
         </div>
       </div>
@@ -153,7 +443,7 @@
                  class="w-full rounded-2xl px-4 py-2 bg-neutral-900 border border-neutral-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
           <div id="search-info" class="text-xs text-neutral-500 mt-1"></div>
         </div>
-        <div id="list" class="max-h-[420px] overflow-auto pr-1 custom-scroll"></div>
+        <div id="list" class="virtual-list max-h-[420px] overflow-auto pr-1 custom-scroll"></div>
       </div>
 
       <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg flex flex-col">
@@ -207,6 +497,7 @@
 
     function highlightText(text, query) {
       if (!query.trim()) return text;
+      
       const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
       return text.replace(regex, '<span class="highlight">$1</span>');
     }
@@ -219,6 +510,7 @@
       const hour = String(now.getHours()).padStart(2, '0');
       const min = String(now.getMinutes()).padStart(2, '0');
       const sec = String(now.getSeconds()).padStart(2, '0');
+      
       return `${year}-${month}-${day}_${hour}-${min}-${sec}`;
     }
 
@@ -227,10 +519,94 @@
       const year = now.getFullYear();
       const month = String(now.getMonth() + 1).padStart(2, '0');
       const day = String(now.getDate()).padStart(2, '0');
+      
       return `${year}-${month}-${day}`;
     }
 
+    // 바이트 계산 함수 (UTF-8 기준)
+    function getByteLength(str) {
+      return new Blob([str], { type: 'text/plain' }).size;
+    }
+
+    function truncateToBytes(str, maxBytes) {
+      let truncated = '';
+      let byteLength = 0;
+      
+      for (let i = 0; i < str.length; i++) {
+        const char = str[i];
+        const charBytes = getByteLength(char);
+        
+        if (byteLength + charBytes > maxBytes) {
+          break;
+        }
+        
+        truncated += char;
+        byteLength += charBytes;
+      }
+      
+      return truncated;
+    }
+
     let lastGeneratedXLSX = null;
+
+    function generateMemoWithLimit(entries, activeTags = []) {
+      const maxBytes = 290;
+      let memoTokens = [];
+      
+      for (const [pid, qty] of entries) {
+        const part = parts.find(x => x.id === pid);
+        if (!part) continue;
+        
+        const base = part.name.replace(/\s+/g, "");
+        const n = Number(qty) || 0;
+        const token = n <= 1 ? base : `${base}${n}`;
+        
+        // 태그 프리픽스 생성 (S는 [S], 나머지는 슬래시 형태)
+        let tagPrefix = '';
+        if (activeTags.length > 0) {
+          const sTags = activeTags.filter(t => t === 'S');
+          const slashTags = activeTags.filter(t => t !== 'S');
+          
+          let prefix = '';
+          if (sTags.length > 0) {
+            prefix += '[S]';
+          }
+          if (slashTags.length > 0) {
+            prefix += slashTags.join(',') + '/';
+          }
+          tagPrefix = prefix;
+        }
+        
+        const testMemo = `${tagPrefix}${[...memoTokens, token].join(",")}`;
+        
+        if (getByteLength(testMemo) <= maxBytes) {
+          memoTokens.push(token);
+        } else {
+          break;
+        }
+      }
+      
+      // 최종 메모 생성
+      let finalMemo = memoTokens.join(",");
+      if (activeTags.length > 0) {
+        const sTags = activeTags.filter(t => t === 'S');
+        const slashTags = activeTags.filter(t => t !== 'S');
+        
+        let prefix = '';
+        if (sTags.length > 0) {
+          prefix += '[S]';
+        }
+        if (slashTags.length > 0) {
+          prefix += slashTags.join(',') + '/';
+        }
+        
+        if (prefix) {
+          finalMemo = prefix + finalMemo;
+        }
+      }
+      
+      return finalMemo;
+    }
 
     function generateAllDevicesXLSX() {
       if (!Array.isArray(devices) || devices.length === 0) {
@@ -239,7 +615,8 @@
       }
 
       const wsData = [];
-      wsData.push(['기기번호', '부품명(필수입력)', '', '수량', '', '', '', '메모']);
+      
+      wsData.push(['기기번호', '부품명(필수입력)', '', '수량', '', '', '', '정비내용', '', '정비메모']);
       
       const sorted = [...devices].sort((a,b) => {
         const na = Number(a.id), nb = Number(b.id);
@@ -247,42 +624,45 @@
         return String(a.id).localeCompare(String(b.id), 'ko');
       });
 
-      sorted.forEach(device => {
+      sorted.forEach((device, deviceIndex) => {
         if (!device) return;
+        
         if (device.used === false) {
-          wsData.push([device.id, '장력조정', '', '', '', '', '', '']);
-          return;
+          const symptom = truncateToBytes(device.symptom || '', 290);
+          wsData.push([device.id, '장력조정', '', '', '', '', '', '', '', symptom]);
+        } else {
+          const entries = Object.entries(device.selected || {}).filter(([,q]) => Number(q) > 0);
+          if (!entries.length) return;
+
+          const memo = generateMemoWithLimit(entries, device.tags || []);
+          const symptom = truncateToBytes(device.symptom || '', 290);
+
+          let isFirstPart = true;
+          entries.forEach(([pid, qty]) => {
+            const part = parts.find(x => x.id === pid);
+            if (!part) return;
+            
+            const originalPartName = part.originalName || part.name;
+            
+            wsData.push([
+              isFirstPart ? device.id : '',
+              originalPartName,
+              '',
+              Number(qty),
+              '', '', '',
+              isFirstPart ? memo : '',
+              '',
+              isFirstPart ? symptom : ''
+            ]);
+            
+            isFirstPart = false;
+          });
         }
-
-        const entries = Object.entries(device.selected || {}).filter(([,q]) => Number(q) > 0);
-        if (!entries.length) return;
-
-        const memoTokens = [];
-        entries.forEach(([pid, qty]) => {
-          const part = parts.find(x => x.id === pid);
-          if (!part) return;
-          const base = part.name.replace(/\s+/g, "");
-          const n = Number(qty) || 0;
-          memoTokens.push(n <= 1 ? base : `${base}x${n}`);
-        });
-        const memo = memoTokens.length > 0 ? `${memoTokens.join(",")}` : '';
-
-        let isFirstPart = true;
-        entries.forEach(([pid, qty]) => {
-          const part = parts.find(x => x.id === pid);
-          if (!part) return;
-          
-          const originalPartName = part.originalName || part.name;
-          wsData.push([
-            isFirstPart ? device.id : '',
-            originalPartName,
-            '',
-            Number(qty),
-            '', '', '',
-            isFirstPart ? memo : ''
-          ]);
-          isFirstPart = false;
-        });
+        
+        // 기기별 여백 행 추가 (마지막 기기 제외)
+        if (deviceIndex < sorted.length - 1) {
+          wsData.push(['', '', '', '', '', '', '', '', '', '']);
+        }
       });
 
       if (wsData.length <= 1) {
@@ -291,58 +671,144 @@
       }
 
       const ws = XLSX.utils.aoa_to_sheet(wsData);
+      
       ws['!cols'] = [
-        { width: 10 }, { width: 25 }, { width: 5 }, { width: 8 },
-        { width: 5 }, { width: 5 }, { width: 5 }, { width: 20 }
+        { width: 10 },  // A: 기기번호
+        { width: 25 },  // B: 부품명
+        { width: 5 },   // C: 공란
+        { width: 8 },   // D: 수량
+        { width: 5 },   // E: 공란
+        { width: 5 },   // F: 공란
+        { width: 5 },   // G: 공란
+        { width: 20 },  // H: 정비내용
+        { width: 5 },   // I: 공란
+        { width: 20 }   // J: 정비메모
       ];
 
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, '전체기기부품사용내역');
+
       lastGeneratedXLSX = wb;
 
       const timestamp = getCurrentTimestamp();
       const filename = `all_devices_${timestamp}.xlsx`;
+
       XLSX.writeFile(wb, filename);
       
       return true;
     }
 
+    // 안드로이드 공유 개선
     async function shareXLSXFile() {
       if (!lastGeneratedXLSX) {
         alert('먼저 XLSX 파일을 생성해주세요.');
         return false;
       }
-      if (!navigator.share) {
-        alert('이 브라우저는 공유 기능을 지원하지 않습니다.');
-        return false;
-      }
 
       try {
         const xlsxBuffer = XLSX.write(lastGeneratedXLSX, { bookType: 'xlsx', type: 'array' });
-        const blob = new Blob([xlsxBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-        const timestamp = getCurrentTimestamp();
-        const file = new File([blob], `all_devices_${timestamp}.xlsx`, { 
+        const blob = new Blob([xlsxBuffer], { 
           type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
         });
         
-        await navigator.share({
-          title: '전체 기기 부품 사용내역',
-          text: `${getCurrentDate()} 부품 사용내역 입니다.`,
-          files: [file]
-        });
+        // 파일 크기 체크 (25MB 제한)
+        if (blob.size > 25 * 1024 * 1024) {
+          alert('파일이 너무 큽니다. (25MB 제한)');
+          return false;
+        }
+        
+        const timestamp = getCurrentTimestamp();
+        const fileName = `all_devices_${timestamp}.xlsx`;
+        
+        // 안드로이드 호환성 체크
+        if (navigator.share && navigator.canShare) {
+          const file = new File([blob], fileName, { 
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+          });
+          
+          const shareData = {
+            title: '전체 기기 부품 사용내역',
+            text: `/${getCurrentDate()}/부품 사용내역 입니다.`,
+            files: [file]
+          };
+          
+          // 공유 가능 여부 체크
+          if (navigator.canShare(shareData)) {
+            await navigator.share(shareData);
+            return true;
+          }
+        }
+        
+        // 폴백: 직접 다운로드
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        alert('파일이 다운로드되었습니다.');
         return true;
+        
       } catch (error) {
-        console.error('XLSX 공유 실패:', error);
-        alert('XLSX 파일 공유에 실패했습니다.');
-        return false;
+        console.error('공유 실패:', error);
+        
+        // 최종 폴백: 수동 다운로드
+        try {
+          const xlsxBuffer = XLSX.write(lastGeneratedXLSX, { bookType: 'xlsx', type: 'array' });
+          const blob = new Blob([xlsxBuffer], { 
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+          });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `all_devices_${getCurrentTimestamp()}.xlsx`;
+          a.click();
+          URL.revokeObjectURL(url);
+          return true;
+        } catch (fallbackError) {
+          alert('파일 공유/다운로드에 실패했습니다.');
+          return false;
+        }
       }
     }
 
-    function showSuccessMsg(button, textElement, msg) {
+    function showCopySuccess(button, textElement) {
       const originalText = textElement.textContent;
       const originalClass = button.className;
-      textElement.textContent = msg;
+      
+      textElement.textContent = "✅ 복사됨!";
       button.classList.add("copy-success");
+      
+      setTimeout(() => {
+        textElement.textContent = originalText;
+        button.className = originalClass;
+      }, 2000);
+    }
+
+    function showXLSXSuccess(button, textElement) {
+      const originalText = textElement.textContent;
+      const originalClass = button.className;
+      
+      textElement.textContent = "✅ XLSX 생성됨!";
+      button.classList.add("copy-success");
+      
+      setTimeout(() => {
+        textElement.textContent = originalText;
+        button.className = originalClass;
+      }, 2000);
+    }
+
+    function showShareSuccess(button, textElement) {
+      const originalText = textElement.textContent;
+      const originalClass = button.className;
+      
+      textElement.textContent = "✅ 공유됨!";
+      button.classList.add("copy-success");
+      
       setTimeout(() => {
         textElement.textContent = originalText;
         button.className = originalClass;
@@ -360,60 +826,121 @@
       });
     }
 
-    const STORAGE_KEY = 'parts-selector.v3';
+    const STORAGE_KEY = 'parts-selector.v6';
+    const MAPPING_KEY = 'tag-category-mapping.v1';
     const COMMON_TAG = "공용";
-    const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명","품목","제품명"];
-    const TAG_HEADERS  = ["category","cat","tag","tags","카테고리","분류","태그"];
-    const TAG_GROUP_ALIASES = { 'pls': '킥보드', 'pl': '킥보드', 'b2': '자전거', 'b4': '자전거', '공용': '공용' };
+    
+    // 전역 태그 매핑 (대괄호 전체 → 카테고리)
+    let tagCategoryMapping = {};
 
     const $ = (sel) => document.querySelector(sel);
     const normKR = (s) => (s || "").normalize("NFKD").toLowerCase().replace(/\s+/g, "");
-    const toTagKey = (t) => String(t || '').trim().toLowerCase().replace(/\./g, '');
-    const mapTagToGroup = (tag) => TAG_GROUP_ALIASES[toTagKey(tag)] || tag;
 
     const setStatus = (msg, isError=false) => {
       const el = $("#status");
       el.textContent = msg || "";
       el.className = "text-xs " + (isError ? "text-red-400" : "text-neutral-400");
     };
-    const colLetter = (i) => { let s = ""; i = Number(i); while (i >= 0) { s = String.fromCharCode((i % 26) + 65) + s; i = Math.floor(i / 26) - 1; } return s; };
 
+    // L열에서 대괄호 통째로 태그 추출
+    function extractTagFromBrackets(text) {
+      const match = text.match(/^\s*\[([^\]]+)\]/);
+      return match ? match[1].trim() : "기타";
+    }
+
+    // 대괄호 제거하여 부품명 추출
     function stripBracketPrefix(raw) {
       const str = String(raw ?? "").trim();
       const m = str.match(/^\s*\[[^\]]+\]\s*(.*)$/);
       return m ? (m[1] || "").trim() : str;
     }
-    
-    function parseBracketed(raw) {
-      const str = String(raw ?? "").trim();
-      const m = str.match(/^\s*\[([^\]]+)\]\s*(.*)$/);
-      if (m) {
-        return { category: (m[1] || "").trim() || "기타", name: stripBracketPrefix(m[2] || "") };
-      }
-      return null;
-    }
-    
-    function splitTags(catString) {
-      const raw = String(catString ?? "").trim();
-      if (!raw) return ["기타"];
-      return Array.from(new Set(raw.split("/").map(s => s.trim()).filter(Boolean)));
+
+    // 태그를 카테고리로 매핑
+    function mapTagToGroup(tag) {
+      return tagCategoryMapping[tag] || tag;
     }
 
+    // 전역 매핑 저장/로드
+    function saveTagMapping() {
+      try {
+        localStorage.setItem(MAPPING_KEY, JSON.stringify(tagCategoryMapping));
+      } catch (e) {
+        console.warn("태그 매핑 저장 실패:", e);
+      }
+    }
+
+    function loadTagMapping() {
+      try {
+        const raw = localStorage.getItem(MAPPING_KEY);
+        if (raw) {
+          tagCategoryMapping = JSON.parse(raw);
+        }
+      } catch (e) {
+        console.warn("태그 매핑 로드 실패:", e);
+      }
+    }
+
+    // 커스텀 태그 시스템
+    let customTags = ["S", "봉유격", "홀가공", "오프라인"];
     let parts = [];
     let selected = {};          
     let activeCategory = null;  
     let query = "";
     let lastFileName = "";
     let lastSheetName = "";
-    let mapState = { tagIdx: 0, nameIdx: 1, hasHeader: true };
+
     let devices = [];
     let activeDeviceId = null;
+
+    // 렌더링 최적화 시스템
+    let renderScheduled = {
+      devices: false,
+      list: false,
+      chips: false,
+      output: false,
+      tags: false,
+      categories: false,
+      all: false
+    };
+
+    function scheduleRender(type = 'all') {
+      if (renderScheduled[type]) return;
+      renderScheduled[type] = true;
+
+      requestAnimationFrame(() => {
+        if (type === 'all') {
+          renderDevices();
+          renderCategoryBar();
+          renderList();
+          renderSelectedChips();
+          renderOutput();
+          renderCustomTags();
+        } else {
+          if (type === 'devices') renderDevices();
+          if (type === 'list') renderList();
+          if (type === 'chips') renderSelectedChips();
+          if (type === 'output') renderOutput();
+          if (type === 'tags') renderCustomTags();
+          if (type === 'categories') renderCategoryBar();
+        }
+        renderScheduled[type] = false;
+      });
+    }
+
+    // 저장 최적화 시스템
+    let saveTimeout;
+    function debouncedSave() {
+      clearTimeout(saveTimeout);
+      saveTimeout = setTimeout(saveState, 300);
+    }
 
     function saveState() {
       try {
         const payload = {
-          v: 3, parts, selected, activeCategory, query,
-          meta: { fileName: lastFileName, sheetName: lastSheetName, mapping: mapState },
+          v: 6,
+          customTags,
+          parts, selected, activeCategory, query,
+          meta: { fileName: lastFileName, sheetName: lastSheetName },
           devices, activeDeviceId
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -423,16 +950,23 @@
     function loadState() {
       try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return false;
+        if (!raw) {
+          // 이전 버전에서 마이그레이션
+          return migrateFromPreviousVersion();
+        }
+        
         const data = JSON.parse(raw);
         if (!data || !Array.isArray(data.parts)) return false;
 
+        customTags = Array.isArray(data.customTags) ? data.customTags : ["S", "봉유격", "홀가공", "오프라인"];
+        
         parts = data.parts.map(p => {
           const tags = Array.isArray(p.tags) ? p.tags : ["기타"];
           const groupTags = Array.isArray(p.groupTags) && p.groupTags.length ? p.groupTags : tags.map(mapTagToGroup);
           return {
             id: p.id || `${(p.name||"")}||${tags.slice().sort().join('/')}`,
-            tags, groupTags,
+            tags,
+            groupTags,
             name: stripBracketPrefix(p.name || ""),
             originalName: p.originalName || p.name || "",
             normName: p.normName || normKR(p.name || "")
@@ -443,11 +977,13 @@
         activeCategory = data.activeCategory || null;
         lastFileName = data.meta?.fileName || "";
         lastSheetName = data.meta?.sheetName || "";
-        mapState = data.meta?.mapping || mapState;
 
         devices = Array.isArray(data.devices) ? data.devices.map(d => ({
-          id: d.id, selected: d.selected || {},
-          used: typeof d.used === 'boolean' ? d.used : true
+          id: d.id,
+          selected: d.selected || {},
+          used: typeof d.used === 'boolean' ? d.used : true,
+          tags: Array.isArray(d.tags) ? d.tags : [],
+          symptom: d.symptom || ''
         })) : [];
         activeDeviceId = data.activeDeviceId || null;
 
@@ -460,6 +996,43 @@
         console.warn("상태 로드 실패:", e);
         return false;
       }
+    }
+
+    function migrateFromPreviousVersion() {
+      const oldKeys = ['parts-selector.v5', 'parts-selector.v4', 'parts-selector.v3'];
+      
+      for (const key of oldKeys) {
+        try {
+          const oldRaw = localStorage.getItem(key);
+          if (oldRaw) {
+            const oldData = JSON.parse(oldRaw);
+            
+            parts = oldData.parts || [];
+            selected = oldData.selected || {};
+            query = oldData.query || "";
+            activeCategory = oldData.activeCategory || null;
+            lastFileName = oldData.meta?.fileName || "";
+            lastSheetName = oldData.meta?.sheetName || "";
+            customTags = oldData.customTags || ["S", "봉유격", "홀가공", "오프라인"];
+            
+            devices = Array.isArray(oldData.devices) ? oldData.devices.map(d => ({
+              id: d.id,
+              selected: d.selected || {},
+              used: typeof d.used === 'boolean' ? d.used : true,
+              tags: Array.isArray(d.tags) ? d.tags : (d.sTag ? ["S"] : []),
+              symptom: ''
+            })) : [];
+            
+            activeDeviceId = oldData.activeDeviceId || null;
+            
+            saveState();
+            return true;
+          }
+        } catch (e) {
+          continue;
+        }
+      }
+      return false;
     }
 
     function updateFileInfo(text) {
@@ -483,26 +1056,34 @@
       return parts.filter(p => {
         const gs = Array.isArray(p.groupTags) ? p.groupTags : (Array.isArray(p.tags) ? p.tags.map(mapTagToGroup) : []);
         const catOk = !activeCategory || gs.includes(activeCategory) || gs.includes(COMMON_TAG);
+        
         let txtOk = true;
         if (query.trim()) {
-          txtOk = isChosung ? matchesChosung(p.name, query.trim()) : p.normName.includes(qn);
+          if (isChosung) {
+            txtOk = matchesChosung(p.name, query.trim());
+          } else {
+            txtOk = p.normName.includes(qn);
+          }
         }
+        
         return catOk && txtOk;
       });
     }
 
-    function sanitizeDeviceId(raw) { return String(raw || '').trim().replace(/[.,;]+$/g, ''); }
+    function sanitizeDeviceId(raw) {
+      const s = String(raw || '').trim();
+      return s.replace(/[.,;]+$/g, '');
+    }
     function ensureDevice(id) {
       id = sanitizeDeviceId(id);
       if (!id) return null;
       let d = devices.find(x => x.id === id);
       if (!d) {
-        d = { id, selected: {}, used: true };
+        d = { id, selected: {}, used: true, tags: [], symptom: '' };
         devices.push(d);
       }
       return d;
     }
-    
     function switchActiveDevice(id) {
       if (activeDeviceId) {
         const prev = devices.find(x => x.id === activeDeviceId);
@@ -511,28 +1092,32 @@
       activeDeviceId = id;
       const cur = devices.find(x => x.id === activeDeviceId);
       selected = cur ? { ...cur.selected } : {};
-      saveState();
-      renderDevices(); renderList(); renderSelectedChips(); renderOutput();
+      debouncedSave();
+      updateSymptomInput();
+      scheduleRender('all');
     }
-    
     function removeDevice(id) {
       const idx = devices.findIndex(x => x.id === id);
       if (idx >= 0) devices.splice(idx, 1);
-      if (activeDeviceId === id) { activeDeviceId = null; selected = {}; }
-      saveState();
-      renderDevices(); renderList(); renderSelectedChips(); renderOutput();
+      if (activeDeviceId === id) {
+        activeDeviceId = null;
+        selected = {};
+        updateSymptomInput();
+      }
+      debouncedSave();
+      scheduleRender('all');
     }
-    
     function syncSelectedToActiveDevice() {
       if (!activeDeviceId) return;
       const cur = devices.find(x => x.id === activeDeviceId);
       if (!cur) return;
       cur.selected = { ...selected };
-      saveState();
-      renderDevices();
+      debouncedSave();
     }
 
-    function hasActiveSelection() { return Object.values(selected || {}).some(v => Number(v) > 0); }
+    function hasActiveSelection() {
+      return Object.values(selected || {}).some(v => Number(v) > 0);
+    }
 
     function updateUsageButtons() {
       const usedBtn = $("#usage-used");
@@ -555,21 +1140,219 @@
         usedBtn.title = "";
         unusedBtn.title = "선택된 부품이 있어 장력조정으로 전환할 수 없습니다.";
       } else {
-        usedBtn.title = ""; unusedBtn.title = "";
+        usedBtn.title = "";
+        unusedBtn.title = "";
       }
+    }
+
+    // 고장증상 관련 함수들
+    function updateSymptomInput() {
+      const input = $("#symptom-input");
+      const section = $("#symptom-section");
+      
+      if (activeDeviceId) {
+        const device = devices.find(x => x.id === activeDeviceId);
+        input.disabled = false;
+        input.value = device ? device.symptom || '' : '';
+        section.querySelector('.text-xs').textContent = '고장 증상을 입력하세요 (XLSX 정비메모 열에 출력됩니다)';
+      } else {
+        input.disabled = true;
+        input.value = '';
+        section.querySelector('.text-xs').textContent = '활성 기기를 선택하면 고장증상을 입력할 수 있습니다.';
+      }
+      
+      updateSymptomCounter();
+    }
+
+    function updateSymptomCounter() {
+      const input = $("#symptom-input");
+      const counter = $("#symptom-counter");
+      const value = input.value || '';
+      const byteLength = getByteLength(value);
+      
+      counter.textContent = `${byteLength}/290 바이트`;
+      
+      if (byteLength > 290) {
+        counter.classList.add('text-red-400');
+        counter.classList.remove('text-neutral-500');
+      } else {
+        counter.classList.add('text-neutral-500');
+        counter.classList.remove('text-red-400');
+      }
+    }
+
+    function saveSymptom() {
+      if (!activeDeviceId) return;
+      const device = devices.find(x => x.id === activeDeviceId);
+      if (!device) return;
+      
+      const input = $("#symptom-input");
+      device.symptom = input.value || '';
+      debouncedSave();
+    }
+
+    function renderCustomTags() {
+      const container = $("#custom-tags-container");
+      container.innerHTML = "";
+      
+      if (!activeDeviceId) {
+        const span = document.createElement("span");
+        span.className = "text-neutral-500 text-sm";
+        span.textContent = "활성 기기를 선택하세요.";
+        container.appendChild(span);
+        return;
+      }
+      
+      const currentDevice = devices.find(x => x.id === activeDeviceId);
+      if (!currentDevice) return;
+      
+      const fragment = document.createDocumentFragment();
+      customTags.forEach(tag => {
+        const isActive = currentDevice.tags && currentDevice.tags.includes(tag);
+        const btn = document.createElement("button");
+        btn.className = `tag-btn rounded-full px-3 py-1 text-sm border ${
+          isActive ? 'active' : 'bg-neutral-900 border-neutral-700 hover:bg-neutral-800'
+        }`;
+        btn.textContent = `[${tag}]`;
+        btn.title = `${tag} 태그 ${isActive ? '비활성화' : '활성화'}`;
+        btn.addEventListener("click", () => toggleTag(tag));
+        fragment.appendChild(btn);
+      });
+      container.appendChild(fragment);
+    }
+
+    function toggleTag(tagName) {
+      if (!activeDeviceId) return;
+      const device = devices.find(x => x.id === activeDeviceId);
+      if (!device) return;
+      
+      if (!device.tags) device.tags = [];
+      
+      const index = device.tags.indexOf(tagName);
+      if (index > -1) {
+        device.tags.splice(index, 1);
+      } else {
+        device.tags.push(tagName);
+      }
+      
+      debouncedSave();
+      scheduleRender('devices');
+      scheduleRender('tags');
+    }
+
+    function addCustomTag() {
+      const input = $("#tag-input");
+      const tagName = input.value.trim();
+      
+      if (!tagName) {
+        alert("태그 이름을 입력해주세요.");
+        return;
+      }
+      
+      if (customTags.includes(tagName)) {
+        alert("이미 존재하는 태그입니다.");
+        return;
+      }
+      
+      customTags.push(tagName);
+      input.value = "";
+      hideTagInputModal();
+      debouncedSave();
+      scheduleRender('tags');
+      renderTagManageList();
+    }
+
+    function removeCustomTag(tagName) {
+      if (!confirm(`"${tagName}" 태그를 삭제하시겠습니까?\n모든 기기에서 이 태그가 제거됩니다.`)) {
+        return;
+      }
+      
+      const index = customTags.indexOf(tagName);
+      if (index > -1) {
+        customTags.splice(index, 1);
+      }
+      
+      devices.forEach(device => {
+        if (device.tags) {
+          const tagIndex = device.tags.indexOf(tagName);
+          if (tagIndex > -1) {
+            device.tags.splice(tagIndex, 1);
+          }
+        }
+      });
+      
+      debouncedSave();
+      scheduleRender('tags');
+      renderTagManageList();
+      scheduleRender('devices');
+    }
+
+    function showTagInputModal() {
+      $("#tag-input-modal").classList.remove("hidden");
+      $("#tag-input").focus();
+    }
+
+    function hideTagInputModal() {
+      $("#tag-input-modal").classList.add("hidden");
+      $("#tag-input").value = "";
+    }
+
+    function showTagManageModal() {
+      $("#tag-manage-modal").classList.remove("hidden");
+      renderTagManageList();
+    }
+
+    function hideTagManageModal() {
+      $("#tag-manage-modal").classList.add("hidden");
+    }
+
+    function renderTagManageList() {
+      const list = $("#manage-tags-list");
+      list.innerHTML = "";
+      
+      const fragment = document.createDocumentFragment();
+      customTags.forEach(tag => {
+        const item = document.createElement("div");
+        item.className = "flex items-center justify-between gap-2 p-2 border border-neutral-700 rounded-lg";
+        
+        const tagLabel = document.createElement("span");
+        tagLabel.className = "text-sm";
+        tagLabel.textContent = `[${tag}]`;
+        
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "text-xs px-2 py-1 bg-red-600 hover:bg-red-500 rounded-lg text-white";
+        deleteBtn.textContent = "삭제";
+        deleteBtn.addEventListener("click", () => removeCustomTag(tag));
+        
+        item.append(tagLabel, deleteBtn);
+        fragment.appendChild(item);
+      });
+      
+      if (customTags.length === 0) {
+        const emptyMsg = document.createElement("div");
+        emptyMsg.className = "text-neutral-500 text-sm text-center py-4";
+        emptyMsg.textContent = "등록된 커스텀 태그가 없습니다.";
+        fragment.appendChild(emptyMsg);
+      }
+      
+      list.appendChild(fragment);
     }
 
     function renderDevices() {
       const chips = $("#device-chips");
       chips.innerHTML = "";
-      $("#active-device-label").textContent = activeDeviceId || "없음";
-      $("#active-device-mini").textContent = activeDeviceId ? `기기: ${activeDeviceId}` : "";
+      const label = $("#active-device-label");
+      const mini = $("#active-device-mini");
+      label.textContent = activeDeviceId || "없음";
+      mini.textContent = activeDeviceId ? `기기: ${activeDeviceId}` : "";
 
+      const fragment = document.createDocumentFragment();
+      
       if (!devices.length) {
         const span = document.createElement("span");
         span.className = "text-neutral-500 text-sm";
         span.textContent = "일련번호를 추가하세요.";
-        chips.appendChild(span);
+        fragment.appendChild(span);
       } else {
         const sorted = [...devices].sort((a,b)=>{
           const na = Number(a.id), nb = Number(b.id);
@@ -584,8 +1367,22 @@
 
           const btn = document.createElement("button");
           btn.className = "px-2";
-          btn.textContent = count ? `${d.id}(${count})` : d.id;
-          btn.title = d.used ? "부품 사용" : "장력조정";
+          let displayText = count ? `${d.id}(${count})` : d.id;
+          if (d.tags && d.tags.length > 0) {
+            const tagPrefix = d.tags.map(t => `[${t}]`).join('');
+            displayText = `${tagPrefix}${displayText}`;
+          }
+          btn.textContent = displayText;
+          
+          const tooltipParts = [d.used ? "부품 사용" : "장력조정"];
+          if (d.tags && d.tags.length > 0) {
+            tooltipParts.push(`태그: ${d.tags.join(', ')}`);
+          }
+          if (d.symptom) {
+            tooltipParts.push(`증상: ${d.symptom.substring(0, 50)}${d.symptom.length > 50 ? '...' : ''}`);
+          }
+          btn.title = tooltipParts.join(' • ');
+          
           btn.addEventListener("click", ()=> switchActiveDevice(d.id));
 
           const del = document.createElement("button");
@@ -595,9 +1392,11 @@
           del.addEventListener("click", ()=> removeDevice(d.id));
 
           wrap.append(btn, del);
-          chips.appendChild(wrap);
+          fragment.appendChild(wrap);
         });
       }
+
+      chips.appendChild(fragment);
 
       const usedBtn = $("#usage-used");
       const unusedBtn = $("#usage-unused");
@@ -617,6 +1416,7 @@
       if (parts.length === 0) return;
 
       const cats = buildCategories();
+      const fragment = document.createDocumentFragment();
       cats.forEach(cat => {
         const isActive = activeCategory === cat;
         const btn = document.createElement("button");
@@ -624,28 +1424,27 @@
         btn.className = `rounded-full px-3 py-1 border select-none ${isActive ? "bg-indigo-600 border-indigo-500" : "bg-neutral-900 border-neutral-700 hover:bg-neutral-800"}`;
         btn.addEventListener("click", () => {
           activeCategory = (activeCategory === cat) ? null : cat;
-          saveState();
-          renderCategoryBar(); renderList();
+          debouncedSave();
+          scheduleRender('categories');
+          scheduleRender('list');
         });
-        bar.appendChild(btn);
+        fragment.appendChild(btn);
       });
+      bar.appendChild(fragment);
     }
 
-    function liBaseClass(checked) { return `flex items-center gap-3 bg-neutral-950 border border-neutral-800 rounded-xl p-2 ${checked ? "ring-1 ring-indigo-500/40" : ""}`; }
-
-    function toggleSelectionById(id, li, cb) {
+    function toggleSelectionById(id) {
       if (selected[id] && selected[id] > 0) {
         delete selected[id];
-        if (li) li.className = liBaseClass(false);
-        if (cb) cb.checked = false;
       } else {
         selected[id] = 1;
-        if (li) li.className = liBaseClass(true);
-        if (cb) cb.checked = true;
       }
-      renderSelectedChips(); renderOutput(); syncSelectedToActiveDevice();
+      scheduleRender('chips');
+      scheduleRender('output');
+      syncSelectedToActiveDevice();
     }
 
+    // 개선된 모바일 최적화 부품 리스트 렌더링
     function renderList() {
       const container = $("#list");
       container.innerHTML = "";
@@ -657,7 +1456,8 @@
         container.appendChild(empty);
         $("#count").textContent = "(0)";
         $("#search-info").textContent = "";
-        renderSelectedChips(); renderOutput();
+        scheduleRender('chips');
+        scheduleRender('output');
         return;
       }
 
@@ -667,7 +1467,9 @@
       const searchInfo = $("#search-info");
       if (query.trim()) {
         const isChosung = /^[ㄱ-ㅎ\s]+$/.test(query.trim());
-        searchInfo.textContent = isChosung ? `초성 검색: "${query}" → ${filtered.length}건` : `검색: "${query}" → ${filtered.length}건`;
+        searchInfo.textContent = isChosung ? 
+          `초성 검색: "${query}" → ${filtered.length}건` : 
+          `검색: "${query}" → ${filtered.length}건`;
       } else {
         searchInfo.textContent = "";
       }
@@ -677,91 +1479,160 @@
         none.className = "text-neutral-500 text-sm py-8 text-center";
         none.textContent = "검색 결과가 없습니다.";
         container.appendChild(none);
-        renderSelectedChips(); renderOutput();
+        scheduleRender('chips');
+        scheduleRender('output');
         return;
       }
 
-      const ul = document.createElement("ul");
-      ul.className = "space-y-2";
+      // 청크 단위로 렌더링 (30개씩 - 모바일 최적화)
+      const chunkSize = 30;
+      const renderChunk = (startIndex) => {
+        const endIndex = Math.min(startIndex + chunkSize, filtered.length);
+        const fragment = document.createDocumentFragment();
+        
+        for (let i = startIndex; i < endIndex; i++) {
+          const p = filtered[i];
+          const isChecked = selected[p.id] != null && selected[p.id] > 0;
+          const qty = isChecked ? selected[p.id] : 1;
 
-      filtered.forEach(p => {
-        const isChecked = selected[p.id] != null && selected[p.id] > 0;
-        const qty = isChecked ? selected[p.id] : 1;
+          // 메인 컨테이너
+          const item = document.createElement("div");
+          item.className = `part-item ${isChecked ? 'selected' : ''}`;
 
-        const li = document.createElement("li");
-        li.className = liBaseClass(isChecked);
+          // 메인 콘텐츠 영역
+          const mainSection = document.createElement("div");
+          mainSection.className = "part-main";
 
-        const cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.checked = isChecked;
-        cb.className = "h-8 w-8 accent-indigo-500";
-        cb.addEventListener("change", () => {
-          if (cb.checked) selected[p.id] = Math.max(1, Number(qty) || 1);
-          else delete selected[p.id];
-          li.className = liBaseClass(cb.checked);
-          renderSelectedChips(); renderOutput(); syncSelectedToActiveDevice();
-        });
+          // 체크박스
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.checked = isChecked;
+          checkbox.className = "part-checkbox";
+          checkbox.addEventListener("change", () => {
+            if (checkbox.checked) {
+              selected[p.id] = Math.max(1, Number(qty) || 1);
+              item.classList.add('selected');
+            } else {
+              delete selected[p.id];
+              item.classList.remove('selected');
+            }
+            scheduleRender('chips');
+            scheduleRender('output');
+            syncSelectedToActiveDevice();
+          });
 
-        const infoWrap = document.createElement("div");
-        infoWrap.className = "flex-1 cursor-pointer select-none";
-        const infoInner = document.createElement("div");
-        infoInner.className = "flex items-center gap-2 flex-wrap";
+          // 부품 정보 영역
+          const infoSection = document.createElement("div");
+          infoSection.className = "part-info";
 
-        p.tags.forEach(t => {
-          const tagChip = document.createElement("span");
-          tagChip.className = "text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 whitespace-nowrap";
-          tagChip.textContent = `[${t}]`;
-          infoInner.appendChild(tagChip);
-        });
+          // 태그들
+          const tagsContainer = document.createElement("div");
+          tagsContainer.className = "part-tags";
+          p.tags.forEach(t => {
+            const tagChip = document.createElement("span");
+            tagChip.className = "part-tag";
+            tagChip.textContent = `[${t}]`;
+            tagsContainer.appendChild(tagChip);
+          });
 
-        const nameSpan = document.createElement("span");
-        nameSpan.className = "whitespace-normal break-words";
-        nameSpan.innerHTML = highlightText(p.name, query.trim());
-        infoInner.appendChild(nameSpan);
+          // 부품명
+          const partName = document.createElement("div");
+          partName.className = "part-name";
+          partName.innerHTML = highlightText(p.name, query.trim());
 
-        infoWrap.addEventListener("click", () => toggleSelectionById(p.id, li, cb));
-        infoWrap.appendChild(infoInner);
+          infoSection.appendChild(tagsContainer);
+          infoSection.appendChild(partName);
 
-        const qtyWrap = document.createElement("div");
-        qtyWrap.className = "flex items-center gap-2";
-        const qtyLbl = document.createElement("span");
-        qtyLbl.className = "text-sm text-neutral-400";
-        qtyLbl.textContent = "수량";
+          // 메인 섹션 클릭 이벤트 (체크박스 토글)
+          const clickHandler = (e) => {
+            if (e.target === checkbox) return; // 체크박스 직접 클릭은 제외
+            e.preventDefault();
+            checkbox.checked = !checkbox.checked;
+            checkbox.dispatchEvent(new Event('change'));
+          };
+          
+          infoSection.addEventListener("click", clickHandler);
 
-        const qtyInp = document.createElement("input");
-        qtyInp.type = "number";
-        qtyInp.min = "1";
-        qtyInp.value = String(qty);
-        qtyInp.className = "w-20 rounded-xl px-3 py-1 bg-neutral-900 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500";
+          mainSection.appendChild(checkbox);
+          mainSection.appendChild(infoSection);
 
-        const setQty = (val) => {
-          const v = Math.max(1, Math.floor(Number(val) || 1));
-          qtyInp.value = String(v);
-          selected[p.id] = v;
-          if (!cb.checked) cb.checked = true;
-          li.className = liBaseClass(true);
-          renderSelectedChips(); renderOutput(); syncSelectedToActiveDevice();
-        };
+          // 수량 조절 영역
+          const controlsSection = document.createElement("div");
+          controlsSection.className = "part-controls";
 
-        qtyInp.addEventListener("input", () => setQty(qtyInp.value));
+          // 수량 라벨
+          const quantityLabel = document.createElement("span");
+          quantityLabel.className = "quantity-label";
+          quantityLabel.textContent = "수량";
 
-        const plusBtn = document.createElement("button");
-        plusBtn.textContent = "+";
-        plusBtn.className = "px-4 py-2 bg-neutral-800 rounded-lg hover:bg-neutral-700 text-2xl";
-        plusBtn.addEventListener("click", () => setQty(Number(qtyInp.value) + 1));
+          // 수량 섹션 (작은 화면에서 분리)
+          const quantitySection = document.createElement("div");
+          quantitySection.className = "quantity-section flex items-center gap-2";
 
-        const minusBtn = document.createElement("button");
-        minusBtn.textContent = "−";
-        minusBtn.className = "px-4 py-2 bg-neutral-800 rounded-lg hover:bg-neutral-700 text-2xl";
-        minusBtn.addEventListener("click", () => setQty(Math.max(1, Number(qtyInp.value) - 1)));
+          // 수량 입력
+          const quantityInput = document.createElement("input");
+          quantityInput.type = "number";
+          quantityInput.min = "1";
+          quantityInput.value = String(qty);
+          quantityInput.className = "quantity-input";
 
-        qtyWrap.append(qtyLbl, qtyInp, plusBtn, minusBtn);
-        li.append(cb, infoWrap, qtyWrap);
-        ul.appendChild(li);
-      });
+          const setQty = (val) => {
+            const v = Math.max(1, Math.floor(Number(val) || 1));
+            quantityInput.value = String(v);
+            selected[p.id] = v;
+            if (!checkbox.checked) {
+              checkbox.checked = true;
+              item.classList.add('selected');
+            }
+            scheduleRender('chips');
+            scheduleRender('output');
+            syncSelectedToActiveDevice();
+          };
 
-      container.appendChild(ul);
-      renderSelectedChips(); renderOutput();
+          quantityInput.addEventListener("input", () => setQty(quantityInput.value));
+          quantityInput.addEventListener("focus", (e) => e.target.select());
+
+          // 버튼 컨테이너
+          const buttonsContainer = document.createElement("div");
+          buttonsContainer.className = "quantity-buttons";
+
+          // 감소 버튼
+          const minusBtn = document.createElement("button");
+          minusBtn.textContent = "−";
+          minusBtn.className = "quantity-btn";
+          minusBtn.addEventListener("click", () => setQty(Math.max(1, Number(quantityInput.value) - 1)));
+
+          // 증가 버튼
+          const plusBtn = document.createElement("button");
+          plusBtn.textContent = "+";
+          plusBtn.className = "quantity-btn";
+          plusBtn.addEventListener("click", () => setQty(Number(quantityInput.value) + 1));
+
+          buttonsContainer.append(minusBtn, plusBtn);
+          quantitySection.append(quantityInput, buttonsContainer);
+
+          controlsSection.appendChild(quantityLabel);
+          controlsSection.appendChild(quantitySection);
+
+          // 최종 조립
+          item.appendChild(mainSection);
+          item.appendChild(controlsSection);
+          fragment.appendChild(item);
+        }
+        
+        container.appendChild(fragment);
+        
+        // 더 렌더링할 항목이 있으면 다음 청크 렌더링
+        if (endIndex < filtered.length) {
+          setTimeout(() => renderChunk(endIndex), 16); // 60fps 간격
+        }
+      };
+
+      // 첫 번째 청크부터 렌더링 시작
+      renderChunk(0);
+      
+      scheduleRender('chips');
+      scheduleRender('output');
     }
 
     function renderSelectedChips() {
@@ -775,23 +1646,43 @@
         box.appendChild(span);
         return;
       }
+
+      const fragment = document.createDocumentFragment();
       items.forEach(p => {
         const chip = document.createElement("div");
         chip.className = "flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-full pl-3 pr-2 py-1";
+        
+        const labelContainer = document.createElement("div");
+        labelContainer.className = "flex items-center gap-1";
+        
+        p.tags.forEach(t => {
+          const tagChip = document.createElement("span");
+          tagChip.className = "text-[10px] px-1.5 py-0.5 rounded-full bg-neutral-700 text-neutral-300 whitespace-nowrap";
+          tagChip.textContent = `[${t}]`;
+          labelContainer.appendChild(tagChip);
+        });
+        
         const label = document.createElement("span");
         label.className = "text-sm";
         const q = selected[p.id];
         label.textContent = q === 1 ? p.name : `${p.name}×${q}`;
+        labelContainer.appendChild(label);
+        
         const btn = document.createElement("button");
         btn.className = "rounded-full px-2 py-1 hover:bg-neutral-800";
+        btn.title = "제거";
         btn.textContent = "✕";
         btn.addEventListener("click", () => {
           delete selected[p.id];
-          renderList(); renderSelectedChips(); renderOutput(); syncSelectedToActiveDevice();
+          scheduleRender('list');
+          scheduleRender('chips');
+          scheduleRender('output');
+          syncSelectedToActiveDevice();
         });
-        chip.append(label, btn);
-        box.appendChild(chip);
+        chip.append(labelContainer, btn);
+        fragment.appendChild(chip);
       });
+      box.appendChild(fragment);
     }
 
     function renderOutput() {
@@ -815,11 +1706,14 @@
         tokens.push(q === 1 ? `${p.name}` : `${p.name}x${q}`);
       });
       out.value = tokens.join(",").replace(/\s+/g, "");
-      $("#copy-btn").disabled = tokens.length === 0;
+      
+      const hasSelection = tokens.length > 0;
+      $("#copy-btn").disabled = !hasSelection;
     }
 
     function buildAllLogs() {
       if (!Array.isArray(devices) || devices.length === 0) return "";
+
       const sorted = [...devices].sort((a,b)=>{
         const na = Number(a.id), nb = Number(b.id);
         if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
@@ -829,12 +1723,15 @@
       const lines = [];
       for (const d of sorted) {
         if (!d) continue;
+
         if (d.used === false) {
           lines.push(`${d.id} 장력조정`);
           continue;
         }
+
         const entries = Object.entries(d.selected || {}).filter(([,q]) => Number(q) > 0);
         if (!entries.length) continue;
+
         const tokens = [];
         for (const [pid, qty] of entries) {
           const p = parts.find(x => x.id === pid);
@@ -843,8 +1740,9 @@
           const n = Number(qty) || 0;
           tokens.push(n <= 1 ? base : `${base}x${n}`);
         }
-        if (tokens.length) lines.push(`${d.id} ${tokens.join(",")}`);
+        if (tokens.length) lines.push(`${d.id} ${tokens.join(",")} 교체`);
       }
+
       return lines.join("\n");
     }
 
@@ -853,7 +1751,7 @@
       if (!text.trim()) { alert("복사할 로그가 없습니다."); return; }
       try {
         await navigator.clipboard.writeText(text);
-        showSuccessMsg($("#copy-all-log-btn"), $("#copy-all-log-btn-text"), "✅ 복사됨!");
+        showCopySuccess($("#copy-all-log-btn"), $("#copy-all-log-btn-text"));
       } catch (e) {
         alert("복사에 실패했어요. 수동으로 복사해 주세요.\n\n" + text);
       }
@@ -861,9 +1759,19 @@
 
     function deleteAllDevices() {
       if (!devices.length) { alert("삭제할 기기가 없습니다."); return; }
-      if (!confirm("등록된 모든 기기를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.")) return;
-      devices = []; activeDeviceId = null; selected = {};
-      saveState(); renderDevices(); renderList(); renderSelectedChips(); renderOutput();
+      
+      const ok1 = confirm("등록된 모든 기기를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.");
+      if (!ok1) return;
+      
+      const ok2 = confirm("정말로 삭제하시겠습니까?");
+      if (!ok2) return;
+      
+      devices = [];
+      activeDeviceId = null;
+      selected = {};
+      updateSymptomInput();
+      debouncedSave();
+      scheduleRender('all');
       alert("등록된 모든 기기를 삭제했습니다.");
     }
 
@@ -877,132 +1785,184 @@
       return { ws: null, rows: [], sheetName: "" };
     }
 
-    function suggestMapping(rows) {
-      const header = (rows[0] || []).map(v => String(v ?? "").trim());
-      const lower = header.map(v => v.toLowerCase());
-      let tagIdx = -1, nameIdx = -1;
-      for (let i = 0; i < lower.length; i++) {
-        if (tagIdx === -1 && TAG_HEADERS.includes(lower[i])) tagIdx = i;
-        if (nameIdx === -1 && NAME_HEADERS.includes(lower[i])) nameIdx = i;
-      }
-      let hasHeader = (tagIdx !== -1 || nameIdx !== -1);
-      const colMax = Math.max(header.length, ...rows.slice(0, 200).map(r => Array.isArray(r) ? r.length : 0));
-      if (tagIdx === -1 && nameIdx === -1 && colMax >= 2) {
-        tagIdx = 0; nameIdx = 1; hasHeader = false;
-      } else {
-        if (tagIdx === -1 && nameIdx !== -1) tagIdx = (nameIdx === 0 ? 1 : 0);
-        if (nameIdx === -1 && tagIdx !== -1) nameIdx = (tagIdx === 0 ? 1 : 0);
-        if (tagIdx === nameIdx) {
-          for (let i = 0; i < colMax; i++) { if (i !== tagIdx) { nameIdx = i; break; } }
-        }
-      }
-      return { tagIdx, nameIdx, hasHeader, colMax };
-    }
-
-    function parseRows(rows, tagIdx, nameIdx, hasHeader) {
-      const start = hasHeader ? 1 : 0;
+    // 새로운 L열 파싱 로직
+    function parseRows(rows) {
+      const start = 1; // 2행부터 시작
       const parsed = [];
       let skipped = 0;
+      let foundTags = new Set(); // 발견된 태그 수집
+      
       for (let r = start; r < rows.length; r++) {
         const row = rows[r] || [];
-        let cat = tagIdx >= 0 ? String(row[tagIdx] ?? "").trim() : "";
-        let nameRaw = String(row[nameIdx] ?? "").trim();
-        const originalName = nameRaw; 
+        const nameRaw = String(row[11] || "").trim(); // L열 (인덱스 11)
         
-        if (!cat && !nameRaw) { skipped++; continue; }
-        if (!cat) {
-          const legacy = parseBracketed(nameRaw);
-          if (legacy) { cat = legacy.category; nameRaw = legacy.name; }
-        }
-        const tags = splitTags(cat || "기타");
+        const originalName = nameRaw;
+        
+        if (!nameRaw) { skipped++; continue; }
+        
+        // 대괄호에서 태그 추출 (통째로)
+        const tag = extractTagFromBrackets(nameRaw);
+        foundTags.add(tag);
+        
         const name = stripBracketPrefix(nameRaw);
+        
         if (!name) { skipped++; continue; }
+        
+        const tags = [tag];
         const id = `${name}||${tags.slice().sort().join('/')}`;
-        const groupTags = tags.map(mapTagToGroup);
-        parsed.push({ id, tags, groupTags, name, originalName, normName: normKR(name) });
+        const groupTags = tags.map(t => mapTagToGroup(t));
+        
+        parsed.push({ 
+          id, tags, groupTags, 
+          name,
+          originalName,
+          normName: normKR(name) 
+        });
       }
-      return { parsed, skipped };
+      return { parsed, skipped, foundTags: Array.from(foundTags) };
     }
 
-    function bestEffortParse(rows) {
-      const sugg = suggestMapping(rows);
-      const colMax = Math.max(...rows.slice(0, 200).map(r => Array.isArray(r) ? r.length : 0), 0);
-      const attempts = [
-        { tagIdx: sugg.tagIdx, nameIdx: sugg.nameIdx, hasHeader: sugg.hasHeader }
-      ];
-      if (colMax >= 2) {
-        attempts.push({ tagIdx: 0, nameIdx: 1, hasHeader: true });
-        attempts.push({ tagIdx: 0, nameIdx: 1, hasHeader: false });
+    // 태그 매핑 UI 관련 함수들
+    function renderTagMappingList(foundTags) {
+      const list = $("#tag-mapping-list");
+      list.innerHTML = "";
+      
+      const fragment = document.createDocumentFragment();
+      foundTags.forEach(tag => {
+        if (tag === "기타") return; // 기타는 제외
+        
+        const item = document.createElement("div");
+        item.className = "flex items-center justify-between gap-2 p-2 border border-neutral-700 rounded-lg";
+        
+        const tagLabel = document.createElement("span");
+        tagLabel.className = "text-sm font-mono";
+        tagLabel.textContent = `[${tag}]`;
+        
+        const selectWrap = document.createElement("div");
+        selectWrap.className = "flex items-center gap-2";
+        
+        const arrow = document.createElement("span");
+        arrow.className = "text-neutral-500";
+        arrow.textContent = "→";
+        
+        const select = document.createElement("select");
+        select.className = "text-sm px-2 py-1 bg-neutral-800 border border-neutral-600 rounded";
+        
+        const options = ["자전거", "킥보드", "공용"];
+        options.forEach(opt => {
+          const option = document.createElement("option");
+          option.value = opt;
+          option.textContent = opt;
+          if (tagCategoryMapping[tag] === opt) {
+            option.selected = true;
+          }
+          select.appendChild(option);
+        });
+        
+        select.addEventListener("change", () => {
+          tagCategoryMapping[tag] = select.value;
+          saveTagMapping();
+        });
+        
+        selectWrap.append(arrow, select);
+        item.append(tagLabel, selectWrap);
+        fragment.appendChild(item);
+      });
+      
+      if (foundTags.length <= 1) { // 기타만 있는 경우
+        const emptyMsg = document.createElement("div");
+        emptyMsg.className = "text-neutral-500 text-sm text-center py-4";
+        emptyMsg.textContent = "매핑할 태그가 없습니다.";
+        fragment.appendChild(emptyMsg);
       }
-      if (colMax <= 1) {
-        attempts.push({ tagIdx: -1, nameIdx: 0, hasHeader: true });
-        attempts.push({ tagIdx: -1, nameIdx: 0, hasHeader: false });
-      }
-      for (const a of attempts) {
-        const { parsed } = parseRows(rows, a.tagIdx, a.nameIdx, a.hasHeader);
-        if (parsed.length > 0) return { parsed, mapping: a };
-      }
-      return { parsed: [], mapping: null };
+      
+      list.appendChild(fragment);
     }
 
-    function showMappingPanel(rows, suggestion) {
+    function autoMapTags(foundTags) {
+      foundTags.forEach(tag => {
+        if (tag === "기타") return;
+        
+        const lowerTag = tag.toLowerCase();
+        if (lowerTag.includes('b2') || lowerTag.includes('자전거')) {
+          tagCategoryMapping[tag] = "자전거";
+        } else if (lowerTag.includes('pl') || lowerTag.includes('킥보드')) {
+          tagCategoryMapping[tag] = "킥보드";
+        } else if (lowerTag.includes('공용') || lowerTag.includes('common')) {
+          tagCategoryMapping[tag] = "공용";
+        } else {
+          // 기본값은 공용으로
+          tagCategoryMapping[tag] = "공용";
+        }
+      });
+      
+      saveTagMapping();
+      renderTagMappingList(foundTags);
+    }
+
+    function resetTagMapping(foundTags) {
+      foundTags.forEach(tag => {
+        if (tagCategoryMapping[tag]) {
+          delete tagCategoryMapping[tag];
+        }
+      });
+      saveTagMapping();
+      renderTagMappingList(foundTags);
+    }
+
+    function showMappingPanel(rows) {
       const panel = $("#mapping-panel");
-      const tagSel = $("#map-tag-col");
-      const nameSel = $("#map-name-col");
-      const headerCb = $("#map-has-header");
       const preview = $("#map-preview");
       const hint = $("#mapping-hint");
 
-      const colMax = Math.max((rows[0] || []).length, ...rows.slice(0, 200).map(r => Array.isArray(r) ? r.length : 0));
-      tagSel.innerHTML = ""; nameSel.innerHTML = "";
+      hint.textContent = "L열에서 부품 정보를 자동으로 가져옵니다. (2행부터 시작)";
 
-      const noneOpt = document.createElement("option");
-      noneOpt.value = "-1"; noneOpt.textContent = "없음(단일열/괄호 또는 기타)";
-      tagSel.appendChild(noneOpt);
-
-      for (let i = 0; i < colMax; i++) {
-        const label = `${colLetter(i)}${(rows[0] && rows[0][i]) ? ` · ${String(rows[0][i]).trim()}` : ""}`;
-        const t = document.createElement("option"); t.value = String(i); t.textContent = label; tagSel.appendChild(t);
-        const n = document.createElement("option"); n.value = String(i); n.textContent = label; nameSel.appendChild(n);
+      // 미리보기 생성
+      const lines = [];
+      for (let r = 1; r < Math.min(rows.length, 11); r++) {
+        const row = rows[r] || [];
+        const nameRaw = String(row[11] || "").trim();
+        if (!nameRaw) continue;
+        
+        const tag = extractTagFromBrackets(nameRaw);
+        const name = stripBracketPrefix(nameRaw);
+        if (!name) continue;
+        
+        lines.push(`[${tag}] ${name}`);
       }
+      preview.textContent = lines.length ? lines.join("\n") : "(L열에 데이터가 없습니다)";
 
-      tagSel.value = String(suggestion.tagIdx >= -1 ? suggestion.tagIdx : -1);
-      nameSel.value = String(suggestion.nameIdx >= 0 ? suggestion.nameIdx : Math.min(1, colMax-1));
-      headerCb.checked = !!suggestion.hasHeader;
-      hint.textContent = `자동 제안: 태그=${suggestion.tagIdx>=0?colLetter(suggestion.tagIdx):'없음'}, 부품명=${colLetter(suggestion.nameIdx)}, 헤더=${suggestion.hasHeader ? "예" : "아니오"}`;
-
-      const updatePreview = () => {
-        const tIdx = Number(tagSel.value), nIdx = Number(nameSel.value), hasH = headerCb.checked;
-        const start = hasH ? 1 : 0;
-        const lines = [];
-        for (let r = start; r < rows.length && lines.length < 10; r++) {
-          const row = rows[r] || [];
-          const cat = tIdx >= 0 ? String(row[tIdx] ?? "").trim() : "";
-          const nmRaw = String(row[nIdx] ?? "").trim();
-          const legacy = !cat ? parseBracketed(nmRaw) : null;
-          const tags = splitTags(legacy ? legacy.category : (cat || "기타"));
-          const nm = stripBracketPrefix(legacy ? legacy.name : nmRaw);
-          if (!nm && !cat) continue;
-          lines.push(`[${tags.join('/')}] ${nm}`);
-        }
-        preview.textContent = lines.length ? lines.join("\n") : "(데이터 미리보기 없음)";
-        mapState = { tagIdx: tIdx, nameIdx: nIdx, hasHeader: hasH };
-      };
+      // 태그 매핑 섹션 설정
+      const { foundTags } = parseRows(rows);
+      renderTagMappingList(foundTags);
       
-      [tagSel, nameSel, headerCb].forEach(el => el.addEventListener('change', updatePreview));
-      updatePreview();
+      // 자동 매핑 버튼 이벤트
+      $("#auto-map-btn").onclick = () => autoMapTags(foundTags);
+      $("#reset-map-btn").onclick = () => resetTagMapping(foundTags);
 
       $("#map-apply").onclick = () => {
-        const { parsed } = parseRows(rows, Number(tagSel.value), Number(nameSel.value), headerCb.checked);
-        if (parsed.length === 0) { alert("파싱 결과가 0건입니다."); return; }
-        parts = parsed; selected = {}; activeCategory = null; query = ""; $("#search").value = "";
-        saveState();
-        renderDevices(); renderCategoryBar(); renderList(); renderSelectedChips(); renderOutput();
-        setStatus(`매핑 완료 | 총 ${parts.length}건`, false);
+        const { parsed, skipped } = parseRows(rows);
+        
+        if (parsed.length === 0) { 
+          alert("파싱 결과가 0건입니다. L열에 올바른 데이터가 있는지 확인해주세요."); 
+          return; 
+        }
+        
+        parts = parsed;
+        selected = {};
+        activeCategory = null;
+        query = "";
+        $("#search").value = "";
+        debouncedSave();
+        scheduleRender('all');
+        setStatus(`L열 파싱 완료: 총 ${parts.length}건 (스킵: ${skipped}건)`, false);
         panel.classList.add("hidden");
       };
 
-      $("#map-cancel").onclick = () => panel.classList.add("hidden");
+      $("#map-cancel").onclick = () => {
+        panel.classList.add("hidden");
+      };
+
       panel.classList.remove("hidden");
     }
 
@@ -1010,15 +1970,15 @@
       setStatus("");
       const ext = (file.name.split(".").pop() || "").toLowerCase();
       if (!["xlsx", "xls"].includes(ext)) {
-        setStatus("엑셀 파일만 업로드 가능합니다.", true);
-        alert("엑셀 파일만 업로드 가능합니다.");
+        setStatus("엑셀 파일만 업로드 가능합니다. (.xlsx, .xls)", true);
+        alert("엑셀 파일만 업로드 가능합니다. (.xlsx, .xls)");
         return;
       }
 
       const ok = await ensureXLSX();
       if (!ok) {
-        setStatus("XLSX 라이브러리 로드 실패 (네트워크 확인)", true);
-        alert("XLSX 다운로드에 실패했습니다. 사내망 보안 이슈일 수 있습니다.");
+        setStatus("XLSX 라이브러리를 불러오지 못했습니다. 네트워크/정책 이슈일 수 있습니다.", true);
+        alert("XLSX 라이브러리를 불러오지 못했습니다.");
         return;
       }
 
@@ -1027,34 +1987,44 @@
         try {
           const wb = XLSX.read(new Uint8Array(reader.result), { type: "array" });
           const chosen = pickFirstNonEmptySheet(wb);
-          if (!chosen.ws) throw new Error("시트가 비어있음");
+          if (!chosen.ws) throw new Error("모든 시트가 비어 있음");
+          const rows = chosen.rows;
           lastSheetName = chosen.sheetName;
           lastFileName = file.name;
+          updateFileInfo(`${file.name} • ${lastSheetName} 로드됨`);
 
-          const { parsed, mapping } = bestEffortParse(chosen.rows);
-          updateFileInfo(`${file.name} • ${lastSheetName}`);
-
-          if (parsed.length > 0) {
-            parts = parsed; selected = {}; activeCategory = null; query = ""; $("#search").value = "";
-            if (mapping) mapState = mapping;
-            saveState();
-            renderDevices(); renderCategoryBar(); renderList(); renderSelectedChips(); renderOutput();
-            setStatus(`자동 매핑 완료 | 총 ${parts.length}건`, false);
-            $("#mapping-panel").classList.add("hidden");
-          } else {
-            setStatus("상단에서 열을 수동으로 선택해주세요.", true);
-            showMappingPanel(chosen.rows, suggestMapping(chosen.rows));
+          // L열 검사 (수정 및 복구된 부분!)
+          let hasLColumnData = false;
+          for (let r = 1; r < rows.length; r++) {
+            if (rows[r] && rows[r][11] && String(rows[r][11]).trim() !== "") {
+              hasLColumnData = true;
+              break;
+            }
           }
+
+          if (hasLColumnData) {
+            showMappingPanel(rows);
+          } else {
+            setStatus("L열(12번째 열)에 데이터가 없습니다.", true);
+            alert("L열에 데이터가 없습니다. 엑셀 형식을 다시 확인해주세요.");
+          }
+
         } catch (err) {
-          console.error("엑셀 로드 에러:", err);
-          setStatus("파일 읽기 오류. 형식을 확인하세요.", true);
-          alert("파일을 읽지 못했습니다.");
+          console.error(err);
+          setStatus("파일을 읽는 중 문제가 발생했습니다.", true);
+          alert("파일 파싱 중 오류가 발생했습니다.");
         }
       };
-      reader.onerror = () => { alert("파일 접근 권한 오류입니다."); };
+
+      reader.onerror = () => {
+        setStatus("파일을 읽지 못했습니다. 파일 접근 권한 또는 손상 여부를 확인하세요.", true);
+        alert("파일을 읽지 못했습니다.");
+      };
+      
       reader.readAsArrayBuffer(file);
     }
 
+    // 이벤트 리스너들
     $("#device-add-btn").addEventListener("click", ()=>{
       const raw = $("#device-input").value || "";
       const tokens = raw.split(/[\s,]+/).map(s=>sanitizeDeviceId(s)).filter(Boolean);
@@ -1062,65 +2032,159 @@
       if (tokens.length) switchActiveDevice(tokens[tokens.length - 1]);
       $("#device-input").value = "";
     });
-    $("#device-input").addEventListener("keydown", (e)=>{ if (e.key === "Enter") { e.preventDefault(); $("#device-add-btn").click(); } });
+    $("#device-input").addEventListener("keydown", (e)=>{
+      if (e.key === "Enter") { e.preventDefault(); $("#device-add-btn").click(); }
+    });
 
     $("#usage-used").addEventListener("click", ()=>{
       if (!activeDeviceId) return;
-      const cur = devices.find(x => x.id === activeDeviceId); if (!cur) return;
-      cur.used = true; saveState(); renderDevices(); renderOutput();
+      const cur = devices.find(x => x.id === activeDeviceId); 
+      if (!cur) return;
+      cur.used = true; 
+      debouncedSave(); 
+      scheduleRender('devices'); 
+      scheduleRender('output');
     });
+    
     $("#usage-unused").addEventListener("click", ()=>{
-      if (!activeDeviceId || hasActiveSelection()) return;
-      const cur = devices.find(x => x.id === activeDeviceId); if (!cur) return;
-      cur.used = false; saveState(); renderDevices(); renderOutput();
+      if (!activeDeviceId) return;
+      if (hasActiveSelection()) return;
+      const cur = devices.find(x => x.id === activeDeviceId); 
+      if (!cur) return;
+      cur.used = false; 
+      debouncedSave(); 
+      scheduleRender('devices'); 
+      scheduleRender('output');
+    });
+
+    // 고장증상 입력 이벤트
+    $("#symptom-input").addEventListener("input", () => {
+      updateSymptomCounter();
+      saveSymptom();
+    });
+
+    // 태그 관련 이벤트
+    $("#add-tag-btn").addEventListener("click", showTagInputModal);
+    $("#manage-tags-btn").addEventListener("click", showTagManageModal);
+    $("#tag-save-btn").addEventListener("click", addCustomTag);
+    $("#tag-cancel-btn").addEventListener("click", hideTagInputModal);
+    $("#tag-manage-close-btn").addEventListener("click", hideTagManageModal);
+    
+    $("#tag-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addCustomTag();
+      } else if (e.key === "Escape") {
+        hideTagInputModal();
+      }
     });
 
     $("#copy-all-log-btn").addEventListener("click", copyAllLogs);
-    $("#xlsx-all-btn").addEventListener("click", async () => { if (generateAllDevicesXLSX()) showSuccessMsg($("#xlsx-all-btn"), $("#xlsx-all-btn-text"), "✅ 생성됨!"); });
-    $("#share-xlsx-btn").addEventListener("click", async () => { if (await shareXLSXFile()) showSuccessMsg($("#share-xlsx-btn"), $("#share-xlsx-btn-text"), "✅ 공유됨!"); });
+    
+    $("#xlsx-all-btn").addEventListener("click", async () => {
+      const success = generateAllDevicesXLSX();
+      if (success) {
+        showXLSXSuccess($("#xlsx-all-btn"), $("#xlsx-all-btn-text"));
+      }
+    });
+    
+    $("#share-xlsx-btn").addEventListener("click", async () => {
+      const success = await shareXLSXFile();
+      if (success) {
+        showShareSuccess($("#share-xlsx-btn"), $("#share-xlsx-btn-text"));
+      }
+    });
+    
     $("#delete-all-devices-btn").addEventListener("click", deleteAllDevices);
 
-    $("#search").addEventListener("input", (e) => { query = e.target.value || ""; saveState(); renderList(); });
+    // 검색 입력 최적화 (디바운싱)
+    let searchTimeout;
+    $("#search").addEventListener("input", (e) => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        query = e.target.value || "";
+        debouncedSave();
+        scheduleRender('list');
+      }, 200);
+    });
 
-    $("#clear-btn").addEventListener("click", () => { selected = {}; syncSelectedToActiveDevice(); renderList(); renderSelectedChips(); renderOutput(); });
+    $("#clear-btn").addEventListener("click", () => {
+      selected = {};
+      syncSelectedToActiveDevice();
+      scheduleRender('list');
+      scheduleRender('chips');
+      scheduleRender('output');
+    });
 
     $("#reset-btn").addEventListener("click", () => {
-      if (!confirm("데이터를 모두 삭제할까요?")) return;
-      parts = []; selected = {}; activeCategory = null; query = ""; lastFileName = ""; lastSheetName = ""; devices = []; activeDeviceId = null;
-      $("#search").value = ""; localStorage.removeItem(STORAGE_KEY);
-      updateFileInfo("엑셀 파일을 업로드하세요."); setStatus("");
-      renderDevices(); renderCategoryBar(); renderList(); renderSelectedChips(); renderOutput();
+      if (!confirm("저장된 데이터(부품 목록, 선택, 기기/사용상태, 검색/태그/매핑)를 모두 삭제할까요?")) return;
+      parts = [];
+      selected = {};
+      activeCategory = null;
+      query = "";
+      lastFileName = "";
+      lastSheetName = "";
+      devices = [];
+      activeDeviceId = null;
+      customTags = ["S", "봉유격", "홀가공", "오프라인"];
+      $("#search").value = "";
+      localStorage.removeItem(STORAGE_KEY);
+      updateFileInfo("엑셀(.xlsx, .xls) 파일을 업로드하세요.");
+      setStatus("");
+      updateSymptomInput();
+      scheduleRender('all');
       $("#mapping-panel").classList.add("hidden");
     });
 
     $("#copy-btn").addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText($("#output").value);
-        showSuccessMsg($("#copy-btn"), $("#copy-btn-text"), "✅ 복사됨!");
-      } catch (e) { alert("복사 실패. 수동으로 복사하세요."); }
+        showCopySuccess($("#copy-btn"), $("#copy-btn-text"));
+      } catch (e) {
+        alert("복사에 실패했어요. 수동으로 복사해 주세요.");
+      }
     });
 
+    // 드래그&드롭 이벤트
     const dz = $("#dropzone");
-    ["dragenter", "dragover", "dragleave", "drop"].forEach(evt => dz.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); }));
-    ["dragenter", "dragover"].forEach(evt => dz.addEventListener(evt, () => dz.classList.add("dragover")));
-    ["dragleave", "drop"].forEach(evt => dz.addEventListener(evt, () => dz.classList.remove("dragover")));
-    dz.addEventListener("drop", (e) => { const file = e.dataTransfer.files && e.dataTransfer.files[0]; if (file) processFile(file); });
+    ["dragenter", "dragover", "dragleave", "drop"].forEach(evt =>
+      dz.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); })
+    );
+    ["dragenter", "dragover"].forEach(evt =>
+      dz.addEventListener(evt, () => dz.classList.add("dragover"))
+    );
+    ["dragleave", "drop"].forEach(evt =>
+      dz.addEventListener(evt, () => dz.classList.remove("dragover"))
+    );
+    dz.addEventListener("drop", (e) => {
+      const file = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) processFile(file);
+    });
 
     $("#file-input").addEventListener("change", (e) => {
-      const file = e.target.files && e.target.files[0]; if (!file) return;
-      processFile(file); e.target.value = "";
+      const file = e.target.files && e.target.files[0]; 
+      if (!file) return;
+      processFile(file);
+      e.target.value = "";
     });
 
+    // 초기화 및 첫 렌더링
+    loadTagMapping(); // 전역 매핑 로드
     const restored = loadState();
     if (restored) {
       const more = lastSheetName ? ` • ${lastSheetName}` : "";
       updateFileInfo(`${lastFileName ? `${lastFileName}${more} (저장됨)` : "저장된 데이터"} • 총 ${parts.length}건`);
       $("#search").value = query || "";
     }
-    renderDevices(); renderCategoryBar(); renderList(); renderSelectedChips(); renderOutput();
+    
+    updateSymptomInput();
+    scheduleRender('all');
 
+    // XLSX 라이브러리 체크
     (async () => {
-      if (!(await ensureXLSX())) setStatus("경고: 외부 라이브러리(XLSX) 차단됨. 엑셀을 불러올 수 없습니다.", true);
+      if (!(await ensureXLSX())) {
+        setStatus("경고: XLSX 라이브러리를 불러오지 못했습니다. 네트워크/정책 차단 가능성.", true);
+      }
     })();
   </script>
 </body>
