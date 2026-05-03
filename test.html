@@ -46,6 +46,24 @@
       border-color: #059669 !important;
       color: white;
     }
+
+    /* 가상 스크롤링 최적화 */
+    .virtual-list {
+      height: 420px;
+      overflow-y: auto;
+      position: relative;
+    }
+
+    .virtual-item {
+      transform: translateZ(0); /* GPU 가속 */
+      will-change: transform;
+    }
+
+    /* 스크롤 최적화 */
+    .scroll-optimized {
+      contain: layout style paint;
+      transform: translateZ(0);
+    }
   </style>
 </head>
 <body class="min-h-screen bg-neutral-950 text-neutral-100">
@@ -131,16 +149,14 @@
 
         <!-- 기기 고장증상 섹션 -->
         <div class="mt-3">
-          <div class="flex items-center gap-2 mb-2">
+          <div class="flex items-center justify-between gap-2 mb-2">
             <span class="text-sm text-neutral-300">기기 고장증상</span>
-            <span class="text-xs text-neutral-500">(예: 에러코드, 무동력)</span>
+            <span id="symptom-counter" class="text-xs text-neutral-400">0/290 바이트</span>
           </div>
-          <textarea id="device-symptom" placeholder="고장증상을 입력하세요..."
-                    class="w-full h-20 rounded-xl px-3 py-2 bg-neutral-900 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+          <textarea id="symptom-input" 
+                    class="w-full h-20 rounded-xl px-3 py-2 bg-neutral-900 border border-neutral-700 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="예: 에러코드 E01, 무동력, 브레이크 잠김 등..."
                     disabled></textarea>
-          <div class="text-xs text-neutral-500 mt-1">
-            <span id="symptom-byte-count">0</span>/290 바이트
-          </div>
         </div>
 
         <!-- 태그 입력 모달 -->
@@ -199,7 +215,7 @@
     </section>
 
     <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg">
+      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg scroll-optimized">
         <div class="flex items-center justify-between mb-3">
           <h2 class="text-lg font-semibold">
             부품 리스트 <span id="count" class="text-neutral-400"></span>
@@ -214,10 +230,10 @@
                  class="w-full rounded-2xl px-4 py-2 bg-neutral-900 border border-neutral-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
           <div id="search-info" class="text-xs text-neutral-500 mt-1"></div>
         </div>
-        <div id="list" class="max-h-[420px] overflow-auto pr-1 custom-scroll"></div>
+        <div id="list" class="virtual-list custom-scroll"></div>
       </div>
 
-      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg flex flex-col">
+      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg flex flex-col scroll-optimized">
         <div class="flex items-center justify-between mb-3">
           <h2 class="text-lg font-semibold">선택된 항목(현재 기기 메모)</h2>
           <span id="active-device-mini" class="text-xs text-neutral-400"></span>
@@ -294,50 +310,72 @@
       return `${year}-${month}-${day}`;
     }
 
-    // 바이트 계산 함수 (한글 3바이트, 영문/숫자 1바이트)
+    // 바이트 계산 함수 (한글 3바이트, 영문 1바이트)
     function getByteLength(str) {
       let byteLength = 0;
       for (let i = 0; i < str.length; i++) {
-        const char = str.charAt(i);
-        if (char.match(/[^\x00-\x7F]/)) {
-          byteLength += 3; // 한글 등 유니코드 문자
+        const char = str.charCodeAt(i);
+        if (char >= 0 && char <= 127) {
+          byteLength += 1;
         } else {
-          byteLength += 1; // 영문, 숫자, 기호
+          byteLength += 3;
         }
       }
       return byteLength;
     }
 
-    // 290바이트 제한으로 문자열 자르기 (부품명 온전히 출력)
-    function truncateToByteLimit(text, maxBytes = 290) {
-      if (getByteLength(text) <= maxBytes) {
-        return text;
+    // 최적화: 렌더링 배치 처리
+    let renderScheduled = false;
+    let renderQueue = new Set();
+
+    function scheduleRender(renderType = 'all') {
+      renderQueue.add(renderType);
+      if (renderScheduled) return;
+      renderScheduled = true;
+      requestAnimationFrame(() => {
+        performRender();
+        renderQueue.clear();
+        renderScheduled = false;
+      });
+    }
+
+    function performRender() {
+      if (renderQueue.has('all') || renderQueue.size > 3) {
+        renderAll();
+      } else {
+        renderQueue.forEach(type => {
+          switch(type) {
+            case 'devices': renderDevices(); break;
+            case 'list': renderList(); break;
+            case 'chips': renderSelectedChips(); break;
+            case 'output': renderOutput(); break;
+            case 'tags': renderCustomTags(); break;
+            case 'categories': renderCategoryBar(); break;
+          }
+        });
       }
-      
-      // 쉼표로 분할된 부품들을 하나씩 확인
-      const parts = text.split(',');
-      const result = [];
-      let currentBytes = 0;
-      
-      for (const part of parts) {
-        const partWithComma = result.length > 0 ? ',' + part : part;
-        const partBytes = getByteLength(partWithComma);
-        
-        if (currentBytes + partBytes <= maxBytes) {
-          result.push(part);
-          currentBytes += partBytes;
-        } else {
-          break; // 이 부품을 추가하면 290바이트 초과
-        }
-      }
-      
-      return result.join(',');
+    }
+
+    function renderAll() {
+      renderDevices();
+      renderCategoryBar();
+      renderList();
+      renderSelectedChips();
+      renderOutput();
+      renderCustomTags();
+    }
+
+    // 최적화: saveState 디바운싱
+    let saveTimeout;
+    function debouncedSave() {
+      clearTimeout(saveTimeout);
+      saveTimeout = setTimeout(saveState, 300);
     }
 
     let lastGeneratedXLSX = null;
 
     function generateMemoWithLimit(entries, activeTags = []) {
-      const maxBytes = 290;
+      const maxByteLength = 290;
       let memoTokens = [];
       
       // 태그 프리픽스 생성
@@ -354,7 +392,6 @@
         }
       }
       
-      // 부품을 하나씩 추가하면서 바이트 체크
       for (const [pid, qty] of entries) {
         const part = parts.find(x => x.id === pid);
         if (!part) continue;
@@ -363,17 +400,48 @@
         const n = Number(qty) || 0;
         const token = n <= 1 ? base : `${base}${n}`;
         
-        const testTokens = [...memoTokens, token];
-        const testMemo = tagPrefix + testTokens.join(",");
+        const testMemo = tagPrefix + [...memoTokens, token].join(",");
         
-        if (getByteLength(testMemo) <= maxBytes) {
+        if (getByteLength(testMemo) <= maxByteLength) {
           memoTokens.push(token);
         } else {
-          break; // 이 부품을 추가하면 290바이트 초과
+          break;
         }
       }
       
-      return tagPrefix + memoTokens.join(",");
+      let finalMemo = memoTokens.join(",");
+      if (tagPrefix) {
+        finalMemo = tagPrefix + finalMemo;
+      }
+      
+      return finalMemo;
+    }
+
+    function generateRepairMemoWithLimit(symptom) {
+      const maxByteLength = 290;
+      if (!symptom) return '';
+      
+      if (getByteLength(symptom) <= maxByteLength) {
+        return symptom;
+      }
+      
+      // 290바이트 초과 시 잘라내기 (단어 경계에서)
+      let result = '';
+      let byteCount = 0;
+      
+      for (let i = 0; i < symptom.length; i++) {
+        const char = symptom[i];
+        const charBytes = char.charCodeAt(0) <= 127 ? 1 : 3;
+        
+        if (byteCount + charBytes > maxByteLength) {
+          break;
+        }
+        
+        result += char;
+        byteCount += charBytes;
+      }
+      
+      return result;
     }
 
     function generateAllDevicesXLSX() {
@@ -384,7 +452,7 @@
 
       const wsData = [];
       
-      // 헤더 변경: H열 정비내용, J열 정비메모
+      // 헤더: H열을 '정비내용'으로, J열을 '정비메모'로 변경
       wsData.push(['기기번호', '부품명(필수입력)', '', '수량', '', '', '', '정비내용', '', '정비메모']);
       
       const sorted = [...devices].sort((a,b) => {
@@ -397,14 +465,14 @@
         if (!device) return;
         
         if (device.used === false) {
-          const repairMemo = truncateToByteLimit(device.symptom || '', 290);
+          const repairMemo = generateRepairMemoWithLimit(device.symptom || '');
           wsData.push([device.id, '장력조정', '', '', '', '', '', '', '', repairMemo]);
         } else {
           const entries = Object.entries(device.selected || {}).filter(([,q]) => Number(q) > 0);
-          if (entries.length === 0) return;
+          if (!entries.length) return;
 
           const memo = generateMemoWithLimit(entries, device.tags || []);
-          const repairMemo = truncateToByteLimit(device.symptom || '', 290);
+          const repairMemo = generateRepairMemoWithLimit(device.symptom || '');
 
           let isFirstPart = true;
           entries.forEach(([pid, qty]) => {
@@ -428,7 +496,7 @@
           });
         }
         
-        // 기기별 여백 행 추가 (마지막 기기는 제외)
+        // 각 기기 후 여백 행 추가 (마지막 기기 제외)
         if (deviceIndex < sorted.length - 1) {
           wsData.push(['', '', '', '', '', '', '', '', '', '']);
         }
@@ -441,18 +509,17 @@
 
       const ws = XLSX.utils.aoa_to_sheet(wsData);
       
-      // 컬럼 너비 조정 (J열 추가)
       ws['!cols'] = [
-        { width: 10 }, // A: 기기번호
-        { width: 25 }, // B: 부품명
-        { width: 5 },  // C: 공란
-        { width: 8 },  // D: 수량
-        { width: 5 },  // E: 공란
-        { width: 5 },  // F: 공란
-        { width: 5 },  // G: 공란
-        { width: 20 }, // H: 정비내용
-        { width: 5 },  // I: 공란
-        { width: 25 }  // J: 정비메모
+        { width: 10 },  // A: 기기번호
+        { width: 25 },  // B: 부품명
+        { width: 5 },   // C: 공란
+        { width: 8 },   // D: 수량
+        { width: 5 },   // E: 공란
+        { width: 5 },   // F: 공란
+        { width: 5 },   // G: 공란
+        { width: 20 },  // H: 정비내용
+        { width: 5 },   // I: 공란
+        { width: 25 }   // J: 정비메모
       ];
 
       const wb = XLSX.utils.book_new();
@@ -553,7 +620,7 @@
       });
     }
 
-    const STORAGE_KEY = 'parts-selector.v5';  // 버전 업그레이드
+    const STORAGE_KEY = 'parts-selector.v5';
     const COMMON_TAG = "공용";
     const NAME_HEADERS = ["name","part","partname","item","품명","이름","부품","부품명","품목","제품명"];
     const TAG_HEADERS  = ["category","cat","tag","tags","카테고리","분류","태그"];
@@ -593,7 +660,7 @@
       return Array.from(new Set(arr));
     }
 
-    // 커스텀 태그 시스템
+    // 데이터
     let customTags = ["S", "봉유격", "홀가공", "오프라인"];
     let parts = [];
     let selected = {};          
@@ -605,6 +672,13 @@
 
     let devices = [];
     let activeDeviceId = null;
+
+    // 가상 스크롤링 변수
+    let filteredParts = [];
+    let visibleStart = 0;
+    let visibleEnd = 0;
+    const ITEM_HEIGHT = 80; // 각 아이템 높이
+    const BUFFER_SIZE = 10; // 버퍼 크기
 
     function saveState() {
       try {
@@ -621,98 +695,138 @@
 
     function loadState() {
       try {
+        // v5 데이터 로드 시도
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) {
-          // 이전 버전에서 마이그레이션 시도
-          for (let ver = 4; ver >= 3; ver--) {
-            const oldKey = `parts-selector.v${ver}`;
-            const oldRaw = localStorage.getItem(oldKey);
-            if (oldRaw) {
-              const oldData = JSON.parse(oldRaw);
-              // v4/v3 호환성 처리
-              if (Array.isArray(oldData.devices)) {
-                oldData.devices = oldData.devices.map(d => ({
-                  id: d.id,
-                  selected: d.selected || {},
-                  used: typeof d.used === 'boolean' ? d.used : true,
-                  tags: Array.isArray(d.tags) ? d.tags : (d.sTag ? ["S"] : []),
-                  symptom: d.symptom || '' // 고장증상 필드 추가
-                }));
-              }
-              
-              customTags = Array.isArray(oldData.customTags) ? oldData.customTags : ["S", "봉유격", "홀가공", "오프라인"];
-              parts = oldData.parts || [];
-              selected = oldData.selected || {};
-              query = oldData.query || "";
-              activeCategory = oldData.activeCategory || null;
-              lastFileName = oldData.meta?.fileName || "";
-              lastSheetName = oldData.meta?.sheetName || "";
-              mapState = oldData.meta?.mapping || mapState;
-              devices = oldData.devices || [];
-              activeDeviceId = oldData.activeDeviceId || null;
-              
-              saveState(); // v5로 저장
-              return true;
-            }
+        if (raw) {
+          const data = JSON.parse(raw);
+          if (data && Array.isArray(data.parts)) {
+            return loadV5Data(data);
           }
-          return false;
         }
-        
-        const data = JSON.parse(raw);
-        if (!data || !Array.isArray(data.parts)) return false;
 
-        customTags = Array.isArray(data.customTags) ? data.customTags : ["S", "봉유격", "홀가공", "오프라인"];
-        
-        parts = data.parts.map(p => {
-          const tags = Array.isArray(p.tags) ? p.tags : ["기타"];
-          const groupTags = Array.isArray(p.groupTags) && p.groupTags.length ? p.groupTags : tags.map(mapTagToGroup);
-          return {
-            id: p.id || `${(p.name||"")}||${tags.slice().sort().join('/')}`,
-            tags,
-            groupTags,
-            name: stripBracketPrefix(p.name || ""),
-            originalName: p.originalName || p.name || "",
-            normName: p.normName || normKR(p.name || "")
-          };
-        });
-        selected = data.selected || {};
-        query = data.query || "";
-        activeCategory = data.activeCategory || null;
-        lastFileName = data.meta?.fileName || "";
-        lastSheetName = data.meta?.sheetName || "";
-        mapState = data.meta?.mapping || mapState;
-
-        devices = Array.isArray(data.devices) ? data.devices.map(d => ({
-          id: d.id,
-          selected: d.selected || {},
-          used: typeof d.used === 'boolean' ? d.used : true,
-          tags: Array.isArray(d.tags) ? d.tags : (d.sTag ? ["S"] : []),
-          symptom: d.symptom || ''
-        })) : [];
-        activeDeviceId = data.activeDeviceId || null;
-
-        if (activeDeviceId) {
-          const dev = devices.find(x => x.id === activeDeviceId);
-          if (dev) selected = { ...dev.selected };
+        // v4 마이그레이션 시도
+        const v4Raw = localStorage.getItem('parts-selector.v4');
+        if (v4Raw) {
+          const v4Data = JSON.parse(v4Raw);
+          return migrateFromV4(v4Data);
         }
-        return true;
+
+        // v3 마이그레이션 시도
+        const v3Raw = localStorage.getItem('parts-selector.v3');
+        if (v3Raw) {
+          const v3Data = JSON.parse(v3Raw);
+          return migrateFromV3(v3Data);
+        }
+
+        return false;
       } catch (e) {
         console.warn("상태 로드 실패:", e);
         return false;
       }
     }
 
+    function loadV5Data(data) {
+      customTags = Array.isArray(data.customTags) ? data.customTags : ["S", "봉유격", "홀가공", "오프라인"];
+      
+      parts = data.parts.map(p => {
+        const tags = Array.isArray(p.tags) ? p.tags : ["기타"];
+        const groupTags = Array.isArray(p.groupTags) && p.groupTags.length ? p.groupTags : tags.map(mapTagToGroup);
+        return {
+          id: p.id || `${(p.name||"")}||${tags.slice().sort().join('/')}`,
+          tags,
+          groupTags,
+          name: stripBracketPrefix(p.name || ""),
+          originalName: p.originalName || p.name || "",
+          normName: p.normName || normKR(p.name || "")
+        };
+      });
+      
+      selected = data.selected || {};
+      query = data.query || "";
+      activeCategory = data.activeCategory || null;
+      lastFileName = data.meta?.fileName || "";
+      lastSheetName = data.meta?.sheetName || "";
+      mapState = data.meta?.mapping || mapState;
+
+      devices = Array.isArray(data.devices) ? data.devices.map(d => ({
+        id: d.id,
+        selected: d.selected || {},
+        used: typeof d.used === 'boolean' ? d.used : true,
+        tags: Array.isArray(d.tags) ? d.tags : [],
+        symptom: d.symptom || ''
+      })) : [];
+      
+      activeDeviceId = data.activeDeviceId || null;
+
+      if (activeDeviceId) {
+        const dev = devices.find(x => x.id === activeDeviceId);
+        if (dev) selected = { ...dev.selected };
+      }
+      
+      return true;
+    }
+
+    function migrateFromV4(data) {
+      customTags = Array.isArray(data.customTags) ? data.customTags : ["S", "봉유격", "홀가공", "오프라인"];
+      parts = data.parts || [];
+      selected = data.selected || {};
+      query = data.query || "";
+      activeCategory = data.activeCategory || null;
+      lastFileName = data.meta?.fileName || "";
+      lastSheetName = data.meta?.sheetName || "";
+      mapState = data.meta?.mapping || mapState;
+      
+      devices = Array.isArray(data.devices) ? data.devices.map(d => ({
+        id: d.id,
+        selected: d.selected || {},
+        used: typeof d.used === 'boolean' ? d.used : true,
+        tags: Array.isArray(d.tags) ? d.tags : [],
+        symptom: '' // v4에서는 symptom이 없었음
+      })) : [];
+      
+      activeDeviceId = data.activeDeviceId || null;
+      
+      if (activeDeviceId) {
+        const dev = devices.find(x => x.id === activeDeviceId);
+        if (dev) selected = { ...dev.selected };
+      }
+      
+      saveState(); // v5로 저장
+      return true;
+    }
+
+    function migrateFromV3(data) {
+      customTags = ["S", "봉유격", "홀가공", "오프라인"]; // 기본값
+      parts = data.parts || [];
+      selected = data.selected || {};
+      query = data.query || "";
+      activeCategory = data.activeCategory || null;
+      lastFileName = data.meta?.fileName || "";
+      lastSheetName = data.meta?.sheetName || "";
+      mapState = data.meta?.mapping || mapState;
+      
+      devices = Array.isArray(data.devices) ? data.devices.map(d => ({
+        id: d.id,
+        selected: d.selected || {},
+        used: typeof d.used === 'boolean' ? d.used : true,
+        tags: d.sTag ? ["S"] : [], // sTag를 tags 배열로 변환
+        symptom: ''
+      })) : [];
+      
+      activeDeviceId = data.activeDeviceId || null;
+      
+      if (activeDeviceId) {
+        const dev = devices.find(x => x.id === activeDeviceId);
+        if (dev) selected = { ...dev.selected };
+      }
+      
+      saveState(); // v5로 저장
+      return true;
+    }
+
     function updateFileInfo(text) {
       const el = $("#file-info");
       if (el) el.textContent = text || "";
-    }
-
-    function updateSymptomByteCount() {
-      const symptom = $("#device-symptom").value || '';
-      const byteLength = getByteLength(symptom);
-      const counter = $("#symptom-byte-count");
-      counter.textContent = byteLength;
-      counter.className = byteLength > 290 ? 'text-red-400' : 'text-neutral-500';
     }
 
     function buildCategories() {
@@ -749,6 +863,7 @@
       const s = String(raw || '').trim();
       return s.replace(/[.,;]+$/g, '');
     }
+    
     function ensureDevice(id) {
       id = sanitizeDeviceId(id);
       if (!id) return null;
@@ -759,56 +874,42 @@
       }
       return d;
     }
+    
     function switchActiveDevice(id) {
       if (activeDeviceId) {
         const prev = devices.find(x => x.id === activeDeviceId);
-        if (prev) {
-          prev.selected = { ...selected };
-          prev.symptom = $("#device-symptom").value || '';
-        }
+        if (prev) prev.selected = { ...selected };
       }
       activeDeviceId = id;
       const cur = devices.find(x => x.id === activeDeviceId);
       selected = cur ? { ...cur.selected } : {};
       
-      // 고장증상 필드 업데이트
-      const symptomField = $("#device-symptom");
-      symptomField.disabled = !cur;
-      symptomField.value = cur ? (cur.symptom || '') : '';
-      updateSymptomByteCount();
+      // 고장증상 입력 업데이트
+      updateSymptomInput();
       
-      saveState();
-      renderDevices();
-      renderList();
-      renderSelectedChips();
-      renderOutput();
-      renderCustomTags();
+      debouncedSave();
+      scheduleRender('all');
     }
+    
     function removeDevice(id) {
       const idx = devices.findIndex(x => x.id === id);
       if (idx >= 0) devices.splice(idx, 1);
       if (activeDeviceId === id) {
         activeDeviceId = null;
         selected = {};
-        $("#device-symptom").value = '';
-        $("#device-symptom").disabled = true;
-        updateSymptomByteCount();
+        updateSymptomInput();
       }
-      saveState();
-      renderDevices();
-      renderList();
-      renderSelectedChips();
-      renderOutput();
-      renderCustomTags();
+      debouncedSave();
+      scheduleRender('all');
     }
+    
     function syncSelectedToActiveDevice() {
       if (!activeDeviceId) return;
       const cur = devices.find(x => x.id === activeDeviceId);
       if (!cur) return;
       cur.selected = { ...selected };
-      cur.symptom = $("#device-symptom").value || '';
-      saveState();
-      renderDevices();
+      debouncedSave();
+      scheduleRender('devices');
     }
 
     function hasActiveSelection() {
@@ -841,20 +942,64 @@
       }
     }
 
-    function renderCustomTags() {
-      const container = $("#custom-tags-container");
-      container.innerHTML = "";
+    function updateSymptomInput() {
+      const symptomInput = $("#symptom-input");
+      const counter = $("#symptom-counter");
       
       if (!activeDeviceId) {
-        const span = document.createElement("span");
-        span.className = "text-neutral-500 text-sm";
-        span.textContent = "활성 기기를 선택하세요.";
-        container.appendChild(span);
+        symptomInput.disabled = true;
+        symptomInput.value = '';
+        symptomInput.placeholder = '활성 기기를 먼저 선택하세요.';
+        counter.textContent = '0/290 바이트';
+      } else {
+        symptomInput.disabled = false;
+        const device = devices.find(x => x.id === activeDeviceId);
+        symptomInput.value = device ? (device.symptom || '') : '';
+        symptomInput.placeholder = '예: 에러코드 E01, 무동력, 브레이크 잠김 등...';
+        updateSymptomCounter();
+      }
+    }
+
+    function updateSymptomCounter() {
+      const symptomInput = $("#symptom-input");
+      const counter = $("#symptom-counter");
+      const text = symptomInput.value || '';
+      const byteLength = getByteLength(text);
+      
+      counter.textContent = `${byteLength}/290 바이트`;
+      
+      if (byteLength > 290) {
+        counter.classList.add('text-red-400');
+        counter.classList.remove('text-neutral-400');
+      } else {
+        counter.classList.add('text-neutral-400');
+        counter.classList.remove('text-red-400');
+      }
+    }
+
+    function saveSymptom() {
+      if (!activeDeviceId) return;
+      const device = devices.find(x => x.id === activeDeviceId);
+      if (!device) return;
+      
+      device.symptom = $("#symptom-input").value || '';
+      debouncedSave();
+    }
+
+    // 최적화된 렌더링 함수들
+    function renderCustomTags() {
+      const container = $("#custom-tags-container");
+      
+      if (!activeDeviceId) {
+        container.innerHTML = '<span class="text-neutral-500 text-sm">활성 기기를 선택하세요.</span>';
         return;
       }
       
       const currentDevice = devices.find(x => x.id === activeDeviceId);
       if (!currentDevice) return;
+      
+      // DOM Fragment 사용으로 최적화
+      const fragment = document.createDocumentFragment();
       
       customTags.forEach(tag => {
         const isActive = currentDevice.tags && currentDevice.tags.includes(tag);
@@ -865,8 +1010,11 @@
         btn.textContent = `[${tag}]`;
         btn.title = `${tag} 태그 ${isActive ? '비활성화' : '활성화'}`;
         btn.addEventListener("click", () => toggleTag(tag));
-        container.appendChild(btn);
+        fragment.appendChild(btn);
       });
+      
+      container.innerHTML = '';
+      container.appendChild(fragment);
     }
 
     function toggleTag(tagName) {
@@ -883,9 +1031,9 @@
         device.tags.push(tagName);
       }
       
-      saveState();
-      renderDevices();
-      renderCustomTags();
+      debouncedSave();
+      scheduleRender('devices');
+      scheduleRender('tags');
     }
 
     function addCustomTag() {
@@ -905,8 +1053,8 @@
       customTags.push(tagName);
       input.value = "";
       hideTagInputModal();
-      saveState();
-      renderCustomTags();
+      debouncedSave();
+      scheduleRender('tags');
       renderTagManageList();
     }
 
@@ -929,10 +1077,10 @@
         }
       });
       
-      saveState();
-      renderCustomTags();
+      debouncedSave();
+      scheduleRender('tags');
+      scheduleRender('devices');
       renderTagManageList();
-      renderDevices();
     }
 
     function showTagInputModal() {
@@ -956,7 +1104,7 @@
 
     function renderTagManageList() {
       const list = $("#manage-tags-list");
-      list.innerHTML = "";
+      const fragment = document.createDocumentFragment();
       
       customTags.forEach(tag => {
         const item = document.createElement("div");
@@ -972,36 +1120,42 @@
         deleteBtn.addEventListener("click", () => removeCustomTag(tag));
         
         item.append(tagLabel, deleteBtn);
-        list.appendChild(item);
+        fragment.appendChild(item);
       });
       
       if (customTags.length === 0) {
         const emptyMsg = document.createElement("div");
         emptyMsg.className = "text-neutral-500 text-sm text-center py-4";
         emptyMsg.textContent = "등록된 커스텀 태그가 없습니다.";
-        list.appendChild(emptyMsg);
+        fragment.appendChild(emptyMsg);
       }
+      
+      list.innerHTML = '';
+      list.appendChild(fragment);
     }
 
     function renderDevices() {
       const chips = $("#device-chips");
-      chips.innerHTML = "";
       const label = $("#active-device-label");
       const mini = $("#active-device-mini");
+      
       label.textContent = activeDeviceId || "없음";
       mini.textContent = activeDeviceId ? `기기: ${activeDeviceId}` : "";
 
+      const fragment = document.createDocumentFragment();
+      
       if (!devices.length) {
         const span = document.createElement("span");
         span.className = "text-neutral-500 text-sm";
         span.textContent = "일련번호를 추가하세요.";
-        chips.appendChild(span);
+        fragment.appendChild(span);
       } else {
         const sorted = [...devices].sort((a,b)=>{
           const na = Number(a.id), nb = Number(b.id);
           if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
           return String(a.id).localeCompare(String(b.id), 'ko');
         });
+        
         sorted.forEach(d=>{
           const count = Object.values(d.selected || {}).reduce((s,v)=> s + (Number(v)||0), 0);
           const isActive = activeDeviceId === d.id;
@@ -1022,7 +1176,7 @@
             tooltipParts.push(`태그: ${d.tags.join(', ')}`);
           }
           if (d.symptom) {
-            tooltipParts.push(`증상: ${d.symptom.substring(0, 20)}${d.symptom.length > 20 ? '...' : ''}`);
+            tooltipParts.push(`고장증상: ${d.symptom.substring(0, 50)}${d.symptom.length > 50 ? '...' : ''}`);
           }
           btn.title = tooltipParts.join(' • ');
           
@@ -1035,9 +1189,12 @@
           del.addEventListener("click", ()=> removeDevice(d.id));
 
           wrap.append(btn, del);
-          chips.appendChild(wrap);
+          fragment.appendChild(wrap);
         });
       }
+      
+      chips.innerHTML = '';
+      chips.appendChild(fragment);
 
       const usedBtn = $("#usage-used");
       const unusedBtn = $("#usage-unused");
@@ -1053,10 +1210,14 @@
 
     function renderCategoryBar() {
       const bar = $("#category-bar");
-      bar.innerHTML = "";
-      if (parts.length === 0) return;
+      if (parts.length === 0) {
+        bar.innerHTML = '';
+        return;
+      }
 
       const cats = buildCategories();
+      const fragment = document.createDocumentFragment();
+      
       cats.forEach(cat => {
         const isActive = activeCategory === cat;
         const btn = document.createElement("button");
@@ -1064,180 +1225,230 @@
         btn.className = `rounded-full px-3 py-1 border select-none ${isActive ? "bg-indigo-600 border-indigo-500" : "bg-neutral-900 border-neutral-700 hover:bg-neutral-800"}`;
         btn.addEventListener("click", () => {
           activeCategory = (activeCategory === cat) ? null : cat;
-          saveState();
-          renderCategoryBar();
-          renderList();
+          debouncedSave();
+          scheduleRender('categories');
+          scheduleRender('list');
         });
-        bar.appendChild(btn);
+        fragment.appendChild(btn);
       });
+      
+      bar.innerHTML = '';
+      bar.appendChild(fragment);
     }
 
     function liBaseClass(checked) {
-      return `flex items-center gap-3 bg-neutral-950 border border-neutral-800 rounded-xl p-2 ${checked ? "ring-1 ring-indigo-500/40" : ""}`;
+      return `virtual-item flex items-center gap-3 bg-neutral-950 border border-neutral-800 rounded-xl p-2 mb-2 ${checked ? "ring-1 ring-indigo-500/40" : ""}`;
     }
 
-    function toggleSelectionById(id, li, cb) {
+    // 최적화된 부품 선택 함수
+    function toggleSelectionOptimized(id) {
       if (selected[id] && selected[id] > 0) {
         delete selected[id];
-        if (li) li.className = liBaseClass(false);
-        if (cb) cb.checked = false;
       } else {
         selected[id] = 1;
-        if (li) li.className = liBaseClass(true);
-        if (cb) cb.checked = true;
       }
-      renderSelectedChips();
-      renderOutput();
+      
+      // 배치 렌더링으로 성능 향상
+      scheduleRender('chips');
+      scheduleRender('output');
       syncSelectedToActiveDevice();
     }
 
+    // 가상 스크롤링 구현
     function renderList() {
       const container = $("#list");
-      container.innerHTML = "";
-
+      
       if (parts.length === 0) {
-        const empty = document.createElement("div");
-        empty.className = "text-neutral-500 text-sm py-8 text-center";
-        empty.textContent = "엑셀 파일을 업로드하세요.";
-        container.appendChild(empty);
+        container.innerHTML = '<div class="text-neutral-500 text-sm py-8 text-center">엑셀 파일을 업로드하세요.</div>';
         $("#count").textContent = "(0)";
         $("#search-info").textContent = "";
-        renderSelectedChips();
-        renderOutput();
         return;
       }
 
-      const filtered = getFiltered();
-      $("#count").textContent = `(${filtered.length})`;
+      filteredParts = getFiltered();
+      $("#count").textContent = `(${filteredParts.length})`;
       
       const searchInfo = $("#search-info");
       if (query.trim()) {
         const isChosung = /^[ㄱ-ㅎ\s]+$/.test(query.trim());
         searchInfo.textContent = isChosung ? 
-          `초성 검색: "${query}" → ${filtered.length}건` : 
-          `검색: "${query}" → ${filtered.length}건`;
+          `초성 검색: "${query}" → ${filteredParts.length}건` : 
+          `검색: "${query}" → ${filteredParts.length}건`;
       } else {
         searchInfo.textContent = "";
       }
 
-      if (filtered.length === 0) {
-        const none = document.createElement("div");
-        none.className = "text-neutral-500 text-sm py-8 text-center";
-        none.textContent = "검색 결과가 없습니다.";
-        container.appendChild(none);
-        renderSelectedChips();
-        renderOutput();
+      if (filteredParts.length === 0) {
+        container.innerHTML = '<div class="text-neutral-500 text-sm py-8 text-center">검색 결과가 없습니다.</div>';
         return;
       }
 
-      const ul = document.createElement("ul");
-      ul.className = "space-y-2";
+      // 가상 스크롤링: 보이는 영역만 렌더링
+      const containerHeight = 420;
+      const visibleCount = Math.ceil(containerHeight / ITEM_HEIGHT);
+      const totalHeight = filteredParts.length * ITEM_HEIGHT;
+      
+      container.style.height = containerHeight + 'px';
+      container.style.overflowY = 'auto';
+      
+      // 스크롤 이벤트 최적화
+      let scrollTimeout;
+      container.onscroll = () => {
+        clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(() => {
+          updateVisibleItems();
+        }, 16); // 60fps
+      };
+      
+      updateVisibleItems();
+    }
 
-      filtered.forEach(p => {
-        const isChecked = selected[p.id] != null && selected[p.id] > 0;
-        const qty = isChecked ? selected[p.id] : 1;
+    function updateVisibleItems() {
+      const container = $("#list");
+      const scrollTop = container.scrollTop;
+      
+      const startIndex = Math.floor(scrollTop / ITEM_HEIGHT);
+      const endIndex = Math.min(startIndex + Math.ceil(420 / ITEM_HEIGHT) + BUFFER_SIZE, filteredParts.length);
+      
+      visibleStart = Math.max(0, startIndex - BUFFER_SIZE);
+      visibleEnd = endIndex;
+      
+      const fragment = document.createDocumentFragment();
+      
+      // 상단 패딩
+      if (visibleStart > 0) {
+        const topPadding = document.createElement('div');
+        topPadding.style.height = (visibleStart * ITEM_HEIGHT) + 'px';
+        fragment.appendChild(topPadding);
+      }
+      
+      // 보이는 아이템들만 렌더링
+      for (let i = visibleStart; i < visibleEnd; i++) {
+        const p = filteredParts[i];
+        if (!p) continue;
+        
+        const li = createPartElement(p);
+        fragment.appendChild(li);
+      }
+      
+      // 하단 패딩
+      if (visibleEnd < filteredParts.length) {
+        const bottomPadding = document.createElement('div');
+        bottomPadding.style.height = ((filteredParts.length - visibleEnd) * ITEM_HEIGHT) + 'px';
+        fragment.appendChild(bottomPadding);
+      }
+      
+      container.innerHTML = '';
+      container.appendChild(fragment);
+    }
 
-        const li = document.createElement("li");
-        li.className = liBaseClass(isChecked);
+    function createPartElement(p) {
+      const isChecked = selected[p.id] != null && selected[p.id] > 0;
+      const qty = isChecked ? selected[p.id] : 1;
 
-        const cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.checked = isChecked;
-        cb.className = "h-8 w-8 accent-indigo-500";
-        cb.setAttribute("aria-label", "선택");
-        cb.addEventListener("change", () => {
-          if (cb.checked) {
-            selected[p.id] = Math.max(1, Number(qty) || 1);
-          } else {
-            delete selected[p.id];
-          }
-          li.className = liBaseClass(cb.checked);
-          renderSelectedChips();
-          renderOutput();
-          syncSelectedToActiveDevice();
-        });
+      const li = document.createElement("li");
+      li.className = liBaseClass(isChecked);
+      li.style.height = (ITEM_HEIGHT - 8) + 'px'; // margin 고려
 
-        const infoWrap = document.createElement("div");
-        infoWrap.className = "flex-1 cursor-pointer select-none";
-        const infoInner = document.createElement("div");
-        infoInner.className = "flex items-center gap-2 flex-wrap";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = isChecked;
+      cb.className = "h-8 w-8 accent-indigo-500";
+      cb.setAttribute("aria-label", "선택");
+      
+      const infoWrap = document.createElement("div");
+      infoWrap.className = "flex-1 cursor-pointer select-none";
+      const infoInner = document.createElement("div");
+      infoInner.className = "flex items-center gap-2 flex-wrap";
 
-        p.tags.forEach(t => {
-          const tagChip = document.createElement("span");
-          tagChip.className = "text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 whitespace-nowrap";
-          tagChip.textContent = `[${t}]`;
-          infoInner.appendChild(tagChip);
-        });
-
-        const nameSpan = document.createElement("span");
-        nameSpan.className = "whitespace-normal break-words";
-        nameSpan.innerHTML = highlightText(p.name, query.trim());
-        infoInner.appendChild(nameSpan);
-
-        infoWrap.addEventListener("click", () => toggleSelectionById(p.id, li, cb));
-        infoWrap.appendChild(infoInner);
-
-        const qtyWrap = document.createElement("div");
-        qtyWrap.className = "flex items-center gap-2";
-        const qtyLbl = document.createElement("span");
-        qtyLbl.className = "text-sm text-neutral-400";
-        qtyLbl.textContent = "수량";
-
-        const qtyInp = document.createElement("input");
-        qtyInp.type = "number";
-        qtyInp.min = "1";
-        qtyInp.value = String(qty);
-        qtyInp.inputMode = "numeric";
-        qtyInp.pattern = "[0-9]*";
-        qtyInp.className = "w-20 rounded-xl px-3 py-1 bg-neutral-900 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500";
-
-        const setQty = (val) => {
-          const v = Math.max(1, Math.floor(Number(val) || 1));
-          qtyInp.value = String(v);
-          selected[p.id] = v;
-          if (!cb.checked) cb.checked = true;
-          li.className = liBaseClass(true);
-          renderSelectedChips();
-          renderOutput();
-          syncSelectedToActiveDevice();
-        };
-
-        qtyInp.addEventListener("input", () => setQty(qtyInp.value));
-
-        const plusBtn = document.createElement("button");
-        plusBtn.textContent = "+";
-        plusBtn.className = "px-4 py-2 bg-neutral-800 rounded-lg hover:bg-neutral-700 text-2xl";
-        plusBtn.setAttribute("aria-label", "수량 증가");
-        plusBtn.addEventListener("click", () => setQty(Number(qtyInp.value) + 1));
-
-        const minusBtn = document.createElement("button");
-        minusBtn.textContent = "−";
-        minusBtn.className = "px-4 py-2 bg-neutral-800 rounded-lg hover:bg-neutral-700 text-2xl";
-        minusBtn.setAttribute("aria-label", "수량 감소");
-        minusBtn.addEventListener("click", () => setQty(Math.max(1, Number(qtyInp.value) - 1)));
-
-        qtyWrap.append(qtyLbl, qtyInp, plusBtn, minusBtn);
-
-        li.append(cb, infoWrap, qtyWrap);
-        ul.appendChild(li);
+      // 태그 칩들
+      p.tags.forEach(t => {
+        const tagChip = document.createElement("span");
+        tagChip.className = "text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 whitespace-nowrap";
+        tagChip.textContent = `[${t}]`;
+        infoInner.appendChild(tagChip);
       });
 
-      container.appendChild(ul);
-      renderSelectedChips();
-      renderOutput();
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "whitespace-normal break-words";
+      nameSpan.innerHTML = highlightText(p.name, query.trim());
+      infoInner.appendChild(nameSpan);
+
+      infoWrap.appendChild(infoInner);
+
+      const qtyWrap = document.createElement("div");
+      qtyWrap.className = "flex items-center gap-2";
+      
+      const qtyLbl = document.createElement("span");
+      qtyLbl.className = "text-sm text-neutral-400";
+      qtyLbl.textContent = "수량";
+
+      const qtyInp = document.createElement("input");
+      qtyInp.type = "number";
+      qtyInp.min = "1";
+      qtyInp.value = String(qty);
+      qtyInp.inputMode = "numeric";
+      qtyInp.pattern = "[0-9]*";
+      qtyInp.className = "w-20 rounded-xl px-3 py-1 bg-neutral-900 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500";
+
+      const plusBtn = document.createElement("button");
+      plusBtn.textContent = "+";
+      plusBtn.className = "px-4 py-2 bg-neutral-800 rounded-lg hover:bg-neutral-700 text-2xl";
+      
+      const minusBtn = document.createElement("button");
+      minusBtn.textContent = "−";
+      minusBtn.className = "px-4 py-2 bg-neutral-800 rounded-lg hover:bg-neutral-700 text-2xl";
+
+      // 이벤트 위임으로 성능 최적화
+      li.addEventListener('click', (e) => {
+        if (e.target === cb || e.target === qtyInp || e.target === plusBtn || e.target === minusBtn) {
+          return;
+        }
+        
+        toggleSelectionOptimized(p.id);
+        cb.checked = !cb.checked;
+        li.className = liBaseClass(cb.checked);
+      });
+
+      cb.addEventListener('change', () => {
+        toggleSelectionOptimized(p.id);
+        li.className = liBaseClass(cb.checked);
+      });
+
+      const setQty = (val) => {
+        const v = Math.max(1, Math.floor(Number(val) || 1));
+        qtyInp.value = String(v);
+        selected[p.id] = v;
+        if (!cb.checked) {
+          cb.checked = true;
+          li.className = liBaseClass(true);
+        }
+        scheduleRender('chips');
+        scheduleRender('output');
+        syncSelectedToActiveDevice();
+      };
+
+      qtyInp.addEventListener("input", () => setQty(qtyInp.value));
+      plusBtn.addEventListener("click", () => setQty(Number(qtyInp.value) + 1));
+      minusBtn.addEventListener("click", () => setQty(Math.max(1, Number(qtyInp.value) - 1)));
+
+      qtyWrap.append(qtyLbl, qtyInp, plusBtn, minusBtn);
+      li.append(cb, infoWrap, qtyWrap);
+      
+      return li;
     }
 
     function renderSelectedChips() {
       const box = $("#selected-chips");
-      box.innerHTML = "";
       const items = parts.filter(p => selected[p.id] && selected[p.id] > 0);
+      
       if (items.length === 0) {
-        const span = document.createElement("span");
-        span.className = "text-neutral-500 text-sm";
-        span.textContent = "선택된 항목이 없습니다.";
-        box.appendChild(span);
+        box.innerHTML = '<span class="text-neutral-500 text-sm">선택된 항목이 없습니다.</span>';
         return;
       }
+      
+      const fragment = document.createDocumentFragment();
+      
       items.forEach(p => {
         const chip = document.createElement("div");
         chip.className = "flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-full pl-3 pr-2 py-1";
@@ -1264,14 +1475,18 @@
         btn.textContent = "✕";
         btn.addEventListener("click", () => {
           delete selected[p.id];
-          renderList();
-          renderSelectedChips();
-          renderOutput();
+          scheduleRender('list');
+          scheduleRender('chips');
+          scheduleRender('output');
           syncSelectedToActiveDevice();
         });
+        
         chip.append(labelContainer, btn);
-        box.appendChild(chip);
+        fragment.appendChild(chip);
       });
+      
+      box.innerHTML = '';
+      box.appendChild(fragment);
     }
 
     function renderOutput() {
@@ -1358,16 +1573,9 @@
       devices = [];
       activeDeviceId = null;
       selected = {};
-      $("#device-symptom").value = '';
-      $("#device-symptom").disabled = true;
-      updateSymptomByteCount();
-      
-      saveState();
-      renderDevices();
-      renderList();
-      renderSelectedChips();
-      renderOutput();
-      renderCustomTags();
+      updateSymptomInput();
+      debouncedSave();
+      scheduleRender('all');
       alert("등록된 모든 기기를 삭제했습니다.");
     }
 
@@ -1519,8 +1727,8 @@
         activeCategory = null;
         query = "";
         $("#search").value = "";
-        saveState();
-        renderDevices(); renderCategoryBar(); renderList(); renderSelectedChips(); renderOutput();
+        debouncedSave();
+        scheduleRender('all');
         setStatus(`매핑 적용: 태그=${mapState.tagIdx>=0?colLetter(mapState.tagIdx):'없음'}, 부품명=${colLetter(mapState.nameIdx)}, 헤더=${mapState.hasHeader ? "예" : "아니오"} | 총 ${parts.length}건`, false);
         panel.classList.add("hidden");
       };
@@ -1569,8 +1777,8 @@
             query = "";
             $("#search").value = "";
             if (mapping) mapState = mapping;
-            saveState();
-            renderDevices(); renderCategoryBar(); renderList(); renderSelectedChips(); renderOutput();
+            debouncedSave();
+            scheduleRender('all');
             setStatus(`자동 매핑 성공: 태그=${mapState.tagIdx>=0?colLetter(mapState.tagIdx):'없음'}, 부품명=${colLetter(mapState.nameIdx)}, 헤더=${mapState.hasHeader ? "예" : "아니오"} | 총 ${parts.length}건`, false);
             $("#mapping-panel").classList.add("hidden");
           } else {
@@ -1599,28 +1807,38 @@
       if (tokens.length) switchActiveDevice(tokens[tokens.length - 1]);
       $("#device-input").value = "";
     });
+    
     $("#device-input").addEventListener("keydown", (e)=>{
       if (e.key === "Enter") { e.preventDefault(); $("#device-add-btn").click(); }
     });
 
+
+
     $("#usage-used").addEventListener("click", ()=>{
       if (!activeDeviceId) return;
-      const cur = devices.find(x => x.id === activeDeviceId); if (!cur) return;
+      const cur = devices.find(x => x.id === activeDeviceId); 
+      if (!cur) return;
       cur.used = true; 
-      saveState(); renderDevices(); renderOutput();
+      debouncedSave(); 
+      scheduleRender('devices'); 
+      scheduleRender('output');
     });
+    
     $("#usage-unused").addEventListener("click", ()=>{
       if (!activeDeviceId) return;
       if (hasActiveSelection()) return;
-      const cur = devices.find(x => x.id === activeDeviceId); if (!cur) return;
+      const cur = devices.find(x => x.id === activeDeviceId); 
+      if (!cur) return;
       cur.used = false; 
-      saveState(); renderDevices(); renderOutput();
+      debouncedSave(); 
+      scheduleRender('devices'); 
+      scheduleRender('output');
     });
 
     // 고장증상 입력 이벤트
-    $("#device-symptom").addEventListener("input", (e) => {
-      updateSymptomByteCount();
-      syncSelectedToActiveDevice();
+    $("#symptom-input").addEventListener("input", () => {
+      updateSymptomCounter();
+      saveSymptom();
     });
 
     // 태그 관련 이벤트
@@ -1640,32 +1858,40 @@
     });
 
     $("#copy-all-log-btn").addEventListener("click", copyAllLogs);
+    
     $("#xlsx-all-btn").addEventListener("click", async () => {
       const success = generateAllDevicesXLSX();
       if (success) {
         showXLSXSuccess($("#xlsx-all-btn"), $("#xlsx-all-btn-text"));
       }
     });
+    
     $("#share-xlsx-btn").addEventListener("click", async () => {
       const success = await shareXLSXFile();
       if (success) {
         showShareSuccess($("#share-xlsx-btn"), $("#share-xlsx-btn-text"));
       }
     });
+    
     $("#delete-all-devices-btn").addEventListener("click", deleteAllDevices);
 
+    // 검색 입력 최적화 (디바운싱)
+    let searchTimeout;
     $("#search").addEventListener("input", (e) => {
-      query = e.target.value || "";
-      saveState();
-      renderList();
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        query = e.target.value || "";
+        debouncedSave();
+        scheduleRender('list');
+      }, 200); // 200ms 디바운싱
     });
 
     $("#clear-btn").addEventListener("click", () => {
       selected = {};
       syncSelectedToActiveDevice();
-      renderList();
-      renderSelectedChips();
-      renderOutput();
+      scheduleRender('list');
+      scheduleRender('chips');
+      scheduleRender('output');
     });
 
     $("#reset-btn").addEventListener("click", () => {
@@ -1681,13 +1907,11 @@
       activeDeviceId = null;
       customTags = ["S", "봉유격", "홀가공", "오프라인"];
       $("#search").value = "";
-      $("#device-symptom").value = "";
-      $("#device-symptom").disabled = true;
-      updateSymptomByteCount();
       localStorage.removeItem(STORAGE_KEY);
       updateFileInfo("엑셀(.xlsx, .xls) 파일을 업로드하세요.");
       setStatus("");
-      renderDevices(); renderCategoryBar(); renderList(); renderSelectedChips(); renderOutput(); renderCustomTags();
+      updateSymptomInput();
+      scheduleRender('all');
       $("#mapping-panel").classList.add("hidden");
     });
 
@@ -1700,6 +1924,7 @@
       }
     });
 
+    // 드래그&드롭 이벤트
     const dz = $("#dropzone");
     ["dragenter", "dragover", "dragleave", "drop"].forEach(evt =>
       dz.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); })
@@ -1716,21 +1941,24 @@
     });
 
     $("#file-input").addEventListener("change", (e) => {
-      const file = e.target.files && e.target.files[0]; if (!file) return;
+      const file = e.target.files && e.target.files[0]; 
+      if (!file) return;
       processFile(file);
       e.target.value = "";
     });
 
-    // 초기화
+    // 초기화 및 첫 렌더링
     const restored = loadState();
     if (restored) {
       const more = lastSheetName ? ` • ${lastSheetName}` : "";
       updateFileInfo(`${lastFileName ? `${lastFileName}${more} (저장됨)` : "저장된 데이터"} • 총 ${parts.length}건`);
       $("#search").value = query || "";
     }
-    renderDevices(); renderCategoryBar(); renderList(); renderSelectedChips(); renderOutput(); renderCustomTags();
-    updateSymptomByteCount();
+    
+    updateSymptomInput();
+    scheduleRender('all');
 
+    // XLSX 라이브러리 체크
     (async () => {
       if (!(await ensureXLSX())) {
         setStatus("경고: XLSX 라이브러리를 불러오지 못했습니다. 네트워크/정책 차단 가능성.", true);
