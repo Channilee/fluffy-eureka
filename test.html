@@ -64,15 +64,15 @@
       contain: layout style paint;
     }
     
-    /* 모바일 최적화된 부품 아이템 */
+    /* === 모바일 최적화된 부품 아이템 (여백 다이어트) === */
     .part-item {
       contain: layout;
       touch-action: manipulation;
-      padding: 1rem;
+      padding: 0.75rem 1rem; /* 상하 여백 축소 */
       border-radius: 0.75rem;
       background: #0a0a0b;
       border: 1px solid #262626;
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.375rem; /* 리스트 간 간격 축소 */
       transition: all 0.15s ease;
     }
     
@@ -87,13 +87,11 @@
       box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2);
     }
     
-    /* 메인 콘텐츠 영역 */
     .part-main {
       display: flex;
       align-items: flex-start;
-      gap: 0.75rem;
-      margin-bottom: 0.75rem;
-      min-height: 2.75rem;
+      gap: 0.625rem;
+      margin-bottom: 0.375rem; /* 컨트롤 영역과의 간격 축소 */
     }
     
     .part-checkbox {
@@ -113,7 +111,7 @@
       display: flex;
       flex-wrap: wrap;
       gap: 0.25rem;
-      margin-bottom: 0.375rem;
+      margin-bottom: 0.125rem; /* 태그와 부품명 사이 간격 최소화 */
     }
     
     .part-tag {
@@ -126,31 +124,37 @@
       white-space: nowrap;
     }
     
-    /* 부품명 텍스트 모바일 최적화 (크기 및 굵기 증가) */
+    /* === 부품명 텍스트 시인성 극대화 === */
     .part-name {
-      font-size: 1.0625rem; 
-      font-weight: 600;
-      line-height: 1.4;
+      font-size: 1.125rem; /* 18px로 크기 확대 */
+      font-weight: 700; /* 더 두껍게 */
+      line-height: 1.3;
       color: #f9fafb;
       word-break: break-word;
     }
     
-    /* 수량 조절 영역 */
+    /* === 수량 조절 영역 그룹화 (우측 정렬) === */
     .part-controls {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 0.75rem;
+      justify-content: flex-end; /* 우측으로 완전히 밀착 */
+      gap: 0.5rem; /* 라벨과 컨트롤 사이 간격 */
     }
     
     .quantity-label {
-      font-size: 0.75rem;
+      font-size: 0.8125rem;
       color: #9ca3af;
       flex-shrink: 0;
     }
     
+    .quantity-section {
+      display: flex;
+      align-items: center;
+      gap: 0.375rem;
+    }
+    
     .quantity-input {
-      width: 3.5rem;
+      width: 3rem;
       height: 2rem;
       border-radius: 0.5rem;
       border: 1px solid #374151;
@@ -170,7 +174,7 @@
     
     .quantity-buttons {
       display: flex;
-      gap: 0.5rem;
+      gap: 0.375rem;
     }
     
     .quantity-btn {
@@ -201,44 +205,22 @@
     /* 반응형 미디어 쿼리 */
     @media (max-width: 640px) {
       .part-item {
-        padding: 0.875rem;
+        padding: 0.625rem 0.875rem; /* 모바일에서 여백 더 타이트하게 */
       }
-      
-      .part-main {
-        gap: 0.625rem;
-      }
-      
-      /* 모바일 화면에서도 기존보다 글씨를 더 크게 유지 */
+      /* 모바일에서도 폰트 크기 유지 */
       .part-name {
-        font-size: 1rem;
-      }
-      
-      .part-controls {
-        gap: 0.5rem;
-      }
-      
-      .quantity-input {
-        width: 3rem;
-        font-size: 0.8125rem;
+        font-size: 1.125rem; 
       }
     }
     
     @media (max-width: 480px) {
       .part-item {
-        padding: 0.75rem;
+        padding: 0.625rem 0.75rem;
       }
-      
+      /* 기존의 세로 배열(column) 제거, 작은 화면에서도 우측 정렬 유지 */
       .part-controls {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 0.5rem;
-      }
-      
-      .quantity-section {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.5rem;
+        flex-direction: row; 
+        justify-content: flex-end;
       }
     }
     
@@ -389,7 +371,7 @@
         </div>
       </div>
 
-      <!-- 카테고 매핑 패널 -->
+      <!-- 카테고리 매핑 패널 -->
       <div id="mapping-panel" class="panel p-4 hidden">
         <div class="flex items-center justify-between">
           <h3 class="font-semibold">파일 가져오기 (L열 자동 인식)</h3>
@@ -1567,9 +1549,9 @@
           quantityLabel.className = "quantity-label";
           quantityLabel.textContent = "수량";
 
-          // 수량 섹션 (작은 화면에서 분리)
+          // 수량 섹션
           const quantitySection = document.createElement("div");
-          quantitySection.className = "quantity-section flex items-center gap-2";
+          quantitySection.className = "quantity-section";
 
           // 수량 입력
           const quantityInput = document.createElement("input");
@@ -1598,18 +1580,19 @@
           const buttonsContainer = document.createElement("div");
           buttonsContainer.className = "quantity-buttons";
 
-          // 버튼 순서 변경: [ + ] 버튼을 먼저, [ - ] 버튼을 나중에 배치
+          // === 버튼 순서 변경 요청 반영: [+] 버튼을 먼저 생성 ===
           const plusBtn = document.createElement("button");
           plusBtn.textContent = "+";
           plusBtn.className = "quantity-btn";
           plusBtn.addEventListener("click", () => setQty(Number(quantityInput.value) + 1));
-          
+
           const minusBtn = document.createElement("button");
           minusBtn.textContent = "−";
           minusBtn.className = "quantity-btn";
           minusBtn.addEventListener("click", () => setQty(Math.max(1, Number(quantityInput.value) - 1)));
 
-          buttonsContainer.append(plusBtn, minusBtn); // <--- 수정한 부분 (순서 변경)
+          // [+] 먼저, 그 다음 [-] 붙이기
+          buttonsContainer.append(plusBtn, minusBtn);
           quantitySection.append(quantityInput, buttonsContainer);
 
           controlsSection.appendChild(quantityLabel);
