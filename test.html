@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>부품 선택 → 쉼표 데이터 생성기 (일련번호/그룹태그/안정화/최적화)</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- 색상 스타일 적용을 위해 xlsx-js-style 라이브러리로 교체 -->
+  <!-- 색상 스타일 적용을 위해 xlsx-js-style 라이브러리 사용 -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
   <style>
     /* 브라우저별 정규화 */
@@ -30,8 +30,6 @@
     .custom-scroll::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 9999px; }
     .custom-scroll::-webkit-scrollbar-track { background: #18181b; }
     
-    .dropzone { border: 2px dashed #3f3f46; border-radius: 16px; }
-    .dropzone.dragover { background: rgba(99,102,241,0.08); border-color: #6366f1; }
     .panel { border: 1px solid #262626; border-radius: 16px; background: #0b0b0c; }
     .btn { border-radius: 12px; padding: 8px 12px; }
     .seg { border-radius: 9999px; overflow: hidden; border: 1px solid #3f3f46; }
@@ -266,10 +264,6 @@
         <span id="file-info" class="text-xs text-neutral-400">엑셀(.xlsx, .xls) 파일을 업로드하세요.</span>
       </div>
 
-      <div id="dropzone" class="dropzone px-4 py-6 text-sm text-neutral-400">
-        파일을 이 영역으로 드래그&드롭하거나, 상단의 파일 업로드 버튼을 사용하세요.
-      </div>
-
       <div class="panel p-4">
         <div class="flex items-center justify-between gap-3 flex-wrap">
           <div class="flex items-center gap-2">
@@ -297,10 +291,10 @@
             <span id="copy-all-log-btn-text">전체 로그 복사</span>
           </button>
           <button id="xlsx-all-btn" class="btn bg-orange-600 hover:bg-orange-500">
-            <span id="xlsx-all-btn-text">내 폰/PC에 다운로드</span>
+            <span id="xlsx-all-btn-text">전체 기기 XLSX 출력</span>
           </button>
-          <button id="share-xlsx-btn" class="btn bg-purple-600 hover:bg-purple-500 font-bold">
-            <span id="share-xlsx-btn-text">바로 카톡/메시지 공유</span>
+          <button id="share-xlsx-btn" class="btn bg-purple-600 hover:bg-purple-500">
+            <span id="share-xlsx-btn-text">XLSX 파일 공유</span>
           </button>
         </div>
 
@@ -424,23 +418,10 @@
 
       <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3 md:p-4 shadow-lg flex flex-col">
         <div class="flex items-center justify-between mb-3">
-          <h2 class="text-lg font-semibold">선택된 항목(현재 기기 메모)</h2>
+          <h2 class="text-lg font-semibold">선택된 항목</h2>
           <span id="active-device-mini" class="text-xs text-neutral-400"></span>
         </div>
         <div id="selected-chips" class="flex flex-wrap gap-2 mb-4 min-h-[42px]"></div>
-        <div>
-          <textarea id="output" readonly 
-                    class="w-full h-32 mt-1 rounded-xl px-3 py-2 bg-black/60 border border-neutral-800 font-mono text-sm focus:outline-none"
-                    placeholder="선택된 부품들이 여기에 표시됩니다..."></textarea>
-          <div class="flex items-center gap-2 mt-2 flex-wrap">
-            <button id="copy-btn" class="btn bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
-              <span id="copy-btn-text">복사하기</span>
-            </button>
-          </div>
-          <p class="mt-2 text-xs text-neutral-500">
-            참고: 메모(현재 기기 출력)는 내부 공백이 제거됩니다. "장력조절" 선택 시 메모에는 "장력조절"이 표시됩니다.
-          </p>
-        </div>
       </div>
     </section>
   </main>
@@ -579,7 +560,7 @@
       return finalMemo;
     }
 
-    // 파일 생성 및 꾸미기 공통 함수 (다운로드/공유에서 사용)
+    // 파일 생성 및 꾸미기 공통 함수
     function buildXLSXWorkbook() {
       if (!Array.isArray(devices) || devices.length === 0) {
         alert('출력할 기기가 없습니다.');
@@ -661,7 +642,6 @@
       };
 
       for (let R = 1; R < wsData.length; R++) {
-        // B열(인덱스 1)에 데이터가 있는 경우만 칠함
         if (wsData[R][1]) {
           for (let C = 1; C <= 7; C++) { 
             const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
@@ -871,7 +851,6 @@
       devices: false,
       list: false,
       chips: false,
-      output: false,
       tags: false,
       categories: false,
       all: false
@@ -887,13 +866,11 @@
           renderCategoryBar();
           renderList();
           renderSelectedChips();
-          renderOutput();
           renderCustomTags();
         } else {
           if (type === 'devices') renderDevices();
           if (type === 'list') renderList();
           if (type === 'chips') renderSelectedChips();
-          if (type === 'output') renderOutput();
           if (type === 'tags') renderCustomTags();
           if (type === 'categories') renderCategoryBar();
         }
@@ -1411,7 +1388,6 @@
         selected[id] = 1;
       }
       scheduleRender('chips');
-      scheduleRender('output');
       syncSelectedToActiveDevice();
     }
 
@@ -1427,7 +1403,6 @@
         $("#count").textContent = "(0)";
         $("#search-info").textContent = "";
         scheduleRender('chips');
-        scheduleRender('output');
         return;
       }
 
@@ -1450,7 +1425,6 @@
         none.textContent = "검색 결과가 없습니다.";
         container.appendChild(none);
         scheduleRender('chips');
-        scheduleRender('output');
         return;
       }
 
@@ -1483,7 +1457,6 @@
               item.classList.remove('selected');
             }
             scheduleRender('chips');
-            scheduleRender('output');
             syncSelectedToActiveDevice();
           });
 
@@ -1543,7 +1516,6 @@
               item.classList.add('selected');
             }
             scheduleRender('chips');
-            scheduleRender('output');
             syncSelectedToActiveDevice();
           };
 
@@ -1584,7 +1556,6 @@
       renderChunk(0);
       
       scheduleRender('chips');
-      scheduleRender('output');
     }
 
     function renderSelectedChips() {
@@ -1628,39 +1599,12 @@
           delete selected[p.id];
           scheduleRender('list');
           scheduleRender('chips');
-          scheduleRender('output');
           syncSelectedToActiveDevice();
         });
         chip.append(labelContainer, btn);
         fragment.appendChild(chip);
       });
       box.appendChild(fragment);
-    }
-
-    function renderOutput() {
-      const out = $("#output");
-      const usedState = (function(){
-        if (!activeDeviceId) return true;
-        const cur = devices.find(x => x.id === activeDeviceId);
-        return cur ? cur.used : true;
-      })();
-
-      if (!usedState) {
-        out.value = "장력조절";
-        $("#copy-btn").disabled = false;
-        return;
-      }
-
-      const tokens = [];
-      parts.forEach(p => {
-        const q = selected[p.id];
-        if (!q) return;
-        tokens.push(q === 1 ? `${p.name}` : `${p.name}x${q}`);
-      });
-      out.value = tokens.join(",").replace(/\s+/g, "");
-      
-      const hasSelection = tokens.length > 0;
-      $("#copy-btn").disabled = !hasSelection;
     }
 
     function buildAllLogs() {
@@ -1986,7 +1930,6 @@
       cur.used = true; 
       debouncedSave(); 
       scheduleRender('devices'); 
-      scheduleRender('output');
     });
     
     $("#usage-unused").addEventListener("click", ()=>{
@@ -1997,7 +1940,6 @@
       cur.used = false; 
       debouncedSave(); 
       scheduleRender('devices'); 
-      scheduleRender('output');
     });
 
     $("#symptom-input").addEventListener("input", () => {
@@ -2053,7 +1995,6 @@
       syncSelectedToActiveDevice();
       scheduleRender('list');
       scheduleRender('chips');
-      scheduleRender('output');
     });
 
     $("#reset-btn").addEventListener("click", () => {
@@ -2074,30 +2015,6 @@
       updateSymptomInput();
       scheduleRender('all');
       $("#mapping-panel").classList.add("hidden");
-    });
-
-    $("#copy-btn").addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText($("#output").value);
-        showCopySuccess($("#copy-btn"), $("#copy-btn-text"));
-      } catch (e) {
-        alert("복사에 실패했어요. 수동으로 복사해 주세요.");
-      }
-    });
-
-    const dz = $("#dropzone");
-    ["dragenter", "dragover", "dragleave", "drop"].forEach(evt =>
-      dz.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); })
-    );
-    ["dragenter", "dragover"].forEach(evt =>
-      dz.addEventListener(evt, () => dz.classList.add("dragover"))
-    );
-    ["dragleave", "drop"].forEach(evt =>
-      dz.addEventListener(evt, () => dz.classList.remove("dragover"))
-    );
-    dz.addEventListener("drop", (e) => {
-      const file = e.dataTransfer.files && e.dataTransfer.files[0];
-      if (file) processFile(file);
     });
 
     $("#file-input").addEventListener("change", (e) => {
